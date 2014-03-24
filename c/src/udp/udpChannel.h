@@ -43,14 +43,6 @@ DD-MMM-YYYY INIT.    SIR    Modification Description
 extern "C" {
 #endif
 
-/**
- * 宏定义
- */
-
-#define EPS_UDPCHANNEL_RECVBUFFER_LEN           4096    /* 单位: 字节 */
-#define EPS_UDPCHANNEL_RECV_TIMEOUT             (1*1000)/* 单位: 秒 */
-#define EPS_UDPCHANNEL_RECONNECT_INTERVAL       (5*1000)/* 单位: 毫秒 */
-
 
 /**
  * 类型定义
@@ -97,12 +89,11 @@ typedef struct EpsUdpChannelTag
 
     int         socket;                     /* 通讯套接字 */
     pthread_t   tid;                        /* 线程id */
-    char        recvBuffer[EPS_UDPCHANNEL_RECVBUFFER_LEN];/* 接收缓冲区 */
     GAsyncQueue* pEventQueue;               /* 事件队列 */
-  
-    EpsUdpChannelListenerT listener;        /* 监听者接口 */
+    char        recvBuffer[EPS_SOCKET_RECVBUFFER_LEN];/* 接收缓冲区 */
+    BOOL        canStop;                    /* 允许停止线程运行标记 */  
 
-    BOOL        canStop;                    /* 允许停止线程运行标记 */
+    EpsUdpChannelListenerT listener;        /* 监听者接口 */
 } EpsUdpChannelT;
 
 
@@ -131,14 +122,15 @@ ResCodeT StartupUdpChannel(EpsUdpChannelT* pChannel);
 ResCodeT ShutdownUdpChannel(EpsUdpChannelT* pChannel);
 
 /*
+ * 触发异步事件
+ */
+ResCodeT TriggerUdpChannelEvent(EpsUdpChannelT* pChannel, const EpsUdpChannelEventT event);
+
+/*
  * 注册通道监听者接口
  */
 ResCodeT RegisterUdpChannelListener(EpsUdpChannelT* pChannel, const EpsUdpChannelListenerT* pListener);
 
-/*
- * 触发异步事件
- */
-ResCodeT TriggerUdpChannelEvent(EpsUdpChannelT* pChannel, EpsUdpChannelEventT* pEvent);
 
 #ifdef __cplusplus
 }

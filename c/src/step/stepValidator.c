@@ -32,7 +32,6 @@
 #include <string.h>
 #include <stdio.h>
 
-#include "cmn/errcode.h"
 #include "cmn/errlib.h"
 #include "eps/epsTypes.h"
 
@@ -68,33 +67,20 @@ static ResCodeT ValidateMDSnapshortRecord(const MDSnapshotFullRefreshRecordT* pR
  */
 ResCodeT ValidateStepMessage(const StepMessageT* pMsg, StepDirectionT direction)
 {
-    ResCodeT rc = NO_ERR;
     TRY
     {
-        rc = ValidateStepMsgHeader(pMsg, direction);
-        if(NOTOK(rc))
-        {
-            THROW_RESCODE(rc);
-        }
+        THROW_ERROR(ValidateStepMsgHeader(pMsg, direction));
         
         switch (pMsg->msgType)
         {
             case STEP_MSGTYPE_LOGON:
             {
-                rc = ValidateLogonRecord((const LogonRecordT*)pMsg->body, direction);
-                if(NOTOK(rc))
-                {
-                    THROW_RESCODE(rc);
-                }
+                THROW_ERROR(ValidateLogonRecord((const LogonRecordT*)pMsg->body, direction));
                 break;
             }
             case STEP_MSGTYPE_LOGOUT:
             {
-                rc = ValidateLogoutRecord((const LogoutRecordT*)pMsg->body, direction);
-                if(NOTOK(rc))
-                {
-                    THROW_RESCODE(rc);
-                }
+                THROW_ERROR(ValidateLogoutRecord((const LogoutRecordT*)pMsg->body, direction));
                 break;
             }
             case STEP_MSGTYPE_HEARTBEAT:
@@ -103,21 +89,13 @@ ResCodeT ValidateStepMessage(const StepMessageT* pMsg, StepDirectionT direction)
             }
             case STEP_MSGTYPE_MD_REQUEST:
             {
-                rc = ValidateMDRequestRecord((const MDRequestRecordT*)pMsg->body, direction);
-                if(NOTOK(rc))
-                {
-                    THROW_RESCODE(rc);
-                }
+                THROW_ERROR(ValidateMDRequestRecord((const MDRequestRecordT*)pMsg->body, direction));
                 break;
             }
             case STEP_MSGTYPE_MD_SNAPSHOT:
             {
-                rc = ValidateMDSnapshortRecord((const MDSnapshotFullRefreshRecordT*)pMsg->body, 
-                        direction);
-                if(NOTOK(rc))
-                {
-                    THROW_RESCODE(rc);
-                }
+                THROW_ERROR(ValidateMDSnapshortRecord((const MDSnapshotFullRefreshRecordT*)pMsg->body, 
+                        direction));
                 break;
             }
             case STEP_MSGTYPE_TRADING_STATUS:

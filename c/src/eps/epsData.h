@@ -6,7 +6,7 @@
 /**
  * @file    epsData.h
  *
- * Express接口API数据定义头文件
+ * 东方快车接口API数据定义头文件
  *
  * @version $Id
  * @since   2014/02/14
@@ -62,8 +62,8 @@ extern "C" {
  */
 typedef enum EpsConnModeTag
 {
-    EPS_CONN_MODE_UDP       = 1,        /* UDP连接模式 */
-    EPS_CONN_MODE_TCP       = 2,        /* TCP连接模式 */
+    EPS_CONNMODE_UDP        = 1,        /* UDP连接模式 */
+    EPS_CONNMODE_TCP        = 2,        /* TCP连接模式 */
 } EpsConnModeT;
 
 /*

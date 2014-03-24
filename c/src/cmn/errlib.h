@@ -33,10 +33,7 @@
  */
 
 #include "eps/epsTypes.h"
-
-#include "errtable.h"
-#include "errcode.h"
-
+#include "cmn/errcode.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -49,9 +46,6 @@ extern "C" {
 
 /* 全局错误码申明 */
 extern __thread ResCodeT __errCode;
-
-/* 执行成功返回码 */
-#define NO_ERR                                  1
 
 /* 正常处理流程块 */
 #define TRY                                     \
@@ -92,7 +86,7 @@ extern __thread ResCodeT __errCode;
 #define THROW_RESCODE(_rc_)                     \
 do                                              \
 {                                               \
-    if(OK(__rc = (_rc_))) {goto el_finally;}   \
+    if(OK(__rc = (_rc_))) {goto el_finally;}    \
     else                   {goto el_catch;}     \
 } while (0);
 
@@ -108,12 +102,6 @@ do                                              \
         }                                       \
         __rc = (_errCode);                      \
         goto el_catch;                          \
-    }                                           \
-    else                                        \
-    {                                           \
-        __rc = NO_ERR;                          \
-        __errCode = NO_ERR;                     \
-        ErrClearError();                        \
     }                                           \
 } while (0)
 

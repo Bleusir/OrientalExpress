@@ -39,6 +39,10 @@ extern "C" {
  
 #define EPS_IP_MAX_LEN                      32
 
+#define EPS_SOCKET_RECVBUFFER_LEN           4096    /* 单位: 字节 */
+#define EPS_SOCKET_RECV_TIMEOUT             (1*1000)/* 单位: 毫秒 */
+#define EPS_SOCKET_RECONNECT_INTERVAL       (5*1000)/* 单位: 毫秒 */
+
 
 #ifdef __cplusplus
 }

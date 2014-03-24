@@ -9,7 +9,7 @@ Oriental Express项目是由上海证券交易所技术人员主导的一个开源项目，提供接入所内各
 
 【接口使用说明】
 具体使用方法请参见接口头文件注释 src/eps/epsClient.h
-客户端演示用例请参见 src/test/epsClient.c
+客户端演示用例请参见 src/test/simpleEpsClient.c 和 src/test/complexEpsClient.c
 
 【联系方式】
 邮箱：zhengwu@sse.com.cn

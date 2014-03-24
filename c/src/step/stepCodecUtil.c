@@ -33,7 +33,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#include "cmn/errcode.h"
 #include "cmn/errlib.h"
 #include "eps/epsTypes.h"
 

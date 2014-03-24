@@ -29,7 +29,7 @@ DD-MMM-YYYY INIT.    SIR    Modification Description
  */
 
 #include "eps/epsTypes.h"
-#include "errcode.h"
+#include "cmn/errcode.h"
 #include "errtable.h"
 
 
@@ -55,6 +55,13 @@ static ErrorInfoT  g_errorTable[] =
     {ERCD_EPS_UNEXPECTED_MSGTYPE, "unexpected message type(%s)"},
     {ERCD_EPS_INVALID_ADDRESS, "invalid address"},
     {ERCD_EPS_DUPLICATE_CONNECT, "connect already"},
+    {ERCD_EPS_MKTTYPE_UNSUBSCRIBED, "market not subscribed"},
+    {ERCD_EPS_MKTDATA_BACKFLOW, "market data backflow"},
+    {ERCD_EPS_DATASOURCE_CHANGED, "data source changed"},
+    {ERCD_EPS_MKTTYPE_DUPSUBSCRIBED, "market duplicate subscribed"},
+    {ERCD_EPS_INVALID_OPERATION, "invalid operation, %s"},
+    {ERCD_EPS_LOGIN_FAILED, "login failed"},
+    {ERCD_EPS_SUBMARKETDATA_FAILED, "subscribe market data failed"},
     
     {ERCD_STEP_INVALID_FLDVALUE, "Invalid field value(%d=%.*s), %s"},
     {ERCD_STEP_BUFFER_OVERFLOW, "Step message buffer overflow"},

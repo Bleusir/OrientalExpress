@@ -33,7 +33,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#include "cmn/errcode.h"
 #include "cmn/errlib.h"
 #include "eps/epsTypes.h"
 
@@ -113,7 +112,6 @@ static ResCodeT DecodeMDSnapshotFullRefreshRecord(const char* buf, int32 bufSize
 ResCodeT DecodeStepMessage(const char* buf, int32 bufSize, 
         StepMessageT* pMsg, int32* pDecodeSize)
 {
-    ResCodeT rc = NO_ERR;
     TRY
     {
         int32 bufOffset = 0;
@@ -125,11 +123,7 @@ ResCodeT DecodeStepMessage(const char* buf, int32 bufSize,
         }
 
         /* 解析字段8(BEGIN_STRING) */
-        rc = GetTextField(buf, bufSize, &field, &bufOffset);
-        if(NOTOK(rc))
-        {
-            THROW_RESCODE(rc);
-        }
+        THROW_ERROR(GetTextField(buf, bufSize, &field, &bufOffset));
 
         if (field.tag != STEP_BEGIN_STRING_TAG)
         {
@@ -144,11 +138,7 @@ ResCodeT DecodeStepMessage(const char* buf, int32 bufSize,
         }
         
         /* 解析字段9(BODY_LENGTH) */
-        rc = GetTextField(buf, bufSize, &field, &bufOffset);
-        if(NOTOK(rc))
-        {
-            THROW_RESCODE(rc);
-        }
+        THROW_ERROR(GetTextField(buf, bufSize, &field, &bufOffset));
         if (field.tag != STEP_BODY_LENGTH_TAG)
         {
             THROW_ERROR(ERCD_STEP_INVALID_MSGFORMAT, 
@@ -171,11 +161,7 @@ ResCodeT DecodeStepMessage(const char* buf, int32 bufSize,
 
         /* 解析字段10(CHECKSUM)，检查校验和 */
         int32 checksumOffset = bufOffset + bodyLen;
-        rc = GetTextField(buf, bufSize, &field, &checksumOffset);
-        if(NOTOK(rc))
-        {
-            THROW_RESCODE(rc);
-        }
+        THROW_ERROR(GetTextField(buf, bufSize, &field, &checksumOffset));
         if (field.tag != STEP_CHECKSUM_TAG)
         {
            THROW_ERROR(ERCD_STEP_INVALID_MSGFORMAT, 
@@ -189,22 +175,14 @@ ResCodeT DecodeStepMessage(const char* buf, int32 bufSize,
         STEP_CHECK_NUMBERONLY_TEXT(field);
 
         char calcChecksum[STEP_CHECKSUM_LEN+1] = {0};
-        rc = CalcChecksum(buf, bufOffset+bodyLen, calcChecksum);
-        if(NOTOK(rc))
-        {
-            THROW_RESCODE(rc);
-        }
+        THROW_ERROR(CalcChecksum(buf, bufOffset+bodyLen, calcChecksum));
         if(memcmp(calcChecksum, field.value, STEP_CHECKSUM_LEN) != 0)
         {
             THROW_ERROR(ERCD_STEP_CHECKSUM_FAILED, field.value, calcChecksum);
         }
 
         /* 解析消息体 */
-        rc = DecodeStepMessageBody(buf+bufOffset, bodyLen, pMsg);
-        if(NOTOK(rc))
-        {
-            THROW_RESCODE(rc);
-        }
+        THROW_ERROR(DecodeStepMessageBody(buf+bufOffset, bodyLen, pMsg));
 
         *pDecodeSize = msgLen;
     }
@@ -228,7 +206,6 @@ ResCodeT DecodeStepMessage(const char* buf, int32 bufSize,
  */
 static ResCodeT DecodeStepMessageBody(const char* buf, int32 bufSize, StepMessageT* pMsg)
 {
-    ResCodeT rc = NO_ERR;
     TRY
     {
         /* STEP消息初始化模板 */
@@ -247,11 +224,7 @@ static ResCodeT DecodeStepMessageBody(const char* buf, int32 bufSize, StepMessag
         int bufOffset = 0;
  
         /* 解析字段35(MsgType) */
-        rc = GetTextField(buf, bufSize, &field, &bufOffset);
-        if(NOTOK(rc))
-        {
-            THROW_RESCODE(rc);
-        }
+        THROW_ERROR(GetTextField(buf, bufSize, &field, &bufOffset));
 
         if (field.tag != STEP_MSG_TYPE_TAG)
         {
@@ -266,48 +239,28 @@ static ResCodeT DecodeStepMessageBody(const char* buf, int32 bufSize, StepMessag
         
         if (strncmp(STEP_MSGTYPE_LOGON_VALUE, msgType, sizeof(msgType)) == 0)
         {
-            rc = DecodeLogonDataRecord((char*)buf + bufOffset, 
-                    bufSize - bufOffset, pMsg);
-            if(NOTOK(rc))
-            {
-                THROW_RESCODE(rc);
-            }
+            THROW_ERROR(DecodeLogonDataRecord((char*)buf + bufOffset, 
+                    bufSize - bufOffset, pMsg));
         }
         else if (strncmp(STEP_MSGTYPE_LOGOUT_VALUE, msgType, sizeof(msgType)) == 0)
         {
-            rc = DecodeLogoutRecord((char*)buf + bufOffset, 
-                    bufSize - bufOffset, pMsg);
-            if(NOTOK(rc))
-            {
-                THROW_RESCODE(rc);
-            }
+            THROW_ERROR(DecodeLogoutRecord((char*)buf + bufOffset, 
+                    bufSize - bufOffset, pMsg));
         }
         else if (strncmp(STEP_MSGTYPE_HEARTBEAT_VALUE, msgType, sizeof(msgType)) == 0)
         {
-            rc = DecodeHeartBeatRecord((char*)buf + bufOffset, 
-                    bufSize - bufOffset, pMsg);
-            if(NOTOK(rc))
-            {
-                THROW_RESCODE(rc);
-            }
+            THROW_ERROR(DecodeHeartBeatRecord((char*)buf + bufOffset, 
+                    bufSize - bufOffset, pMsg));
         }
         else if (strncmp(STEP_MSGTYPE_MD_REQUEST_VALUE, msgType, sizeof(msgType)) == 0)
         {
-            rc = DecodeMDRequestRecord((char*)buf + bufOffset, 
-                    bufSize - bufOffset, pMsg);
-            if(NOTOK(rc))
-            {
-                THROW_RESCODE(rc);
-            }
+            THROW_ERROR(DecodeMDRequestRecord((char*)buf + bufOffset, 
+                    bufSize - bufOffset, pMsg));
         }
         else if (strncmp(STEP_MSGTYPE_MD_SNAPSHOT_VALUE, msgType, sizeof(msgType)) == 0)
         {
-            rc = DecodeMDSnapshotFullRefreshRecord((char*)buf + bufOffset, 
-                bufSize - bufOffset, pMsg);
-            if(NOTOK(rc))
-            {
-                THROW_RESCODE(rc);
-            }
+            THROW_ERROR(DecodeMDSnapshotFullRefreshRecord((char*)buf + bufOffset, 
+                bufSize - bufOffset, pMsg));
         }
         else if (strncmp(STEP_MSGTYPE_TRADING_STATUS_VALUE, msgType, sizeof(msgType)) == 0)
         {
@@ -337,7 +290,6 @@ static ResCodeT DecodeStepMessageBody(const char* buf, int32 bufSize, StepMessag
  */
 static ResCodeT DecodeLogonDataRecord(const char* buf, int32 bufSize, StepMessageT* pMsg)
 {
-    ResCodeT rc = NO_ERR;
     TRY
     {
         /* 登陆请求记录初始化模板 */
@@ -358,11 +310,8 @@ static ResCodeT DecodeLogonDataRecord(const char* buf, int32 bufSize, StepMessag
         
         while(bufOffset < bufSize)
         {
-            rc = GetTextField(buf, bufSize, &field, &bufOffset);
-            {
-                THROW_RESCODE(rc);
-            }
-
+            THROW_ERROR(GetTextField(buf, bufSize, &field, &bufOffset));
+   
             switch (field.tag)
             {
                 DECODE_STEP_MSG_HEADER_STUB
@@ -415,7 +364,6 @@ static ResCodeT DecodeLogonDataRecord(const char* buf, int32 bufSize, StepMessag
  */
 static ResCodeT DecodeLogoutRecord(const char* buf, int32 bufSize, StepMessageT* pMsg)
 {
-    ResCodeT rc = NO_ERR;
     TRY
     {
         /* 登出请求记录初始化模板 */
@@ -433,11 +381,7 @@ static ResCodeT DecodeLogoutRecord(const char* buf, int32 bufSize, StepMessageT*
         
         while(bufOffset < bufSize)
         {
-            rc = GetTextField(buf, bufSize, &field, &bufOffset);
-            if(NOTOK(rc))
-            {
-                THROW_RESCODE(rc);
-            }
+            THROW_ERROR(GetTextField(buf, bufSize, &field, &bufOffset));
 
             switch(field.tag)
             {
@@ -475,7 +419,6 @@ static ResCodeT DecodeLogoutRecord(const char* buf, int32 bufSize, StepMessageT*
  */
 static ResCodeT DecodeHeartBeatRecord(const char* buf, int32 bufSize, StepMessageT* pMsg)
 {
-    ResCodeT rc = NO_ERR;
     TRY
     {
         pMsg->msgType = STEP_MSGTYPE_HEARTBEAT;
@@ -485,11 +428,7 @@ static ResCodeT DecodeHeartBeatRecord(const char* buf, int32 bufSize, StepMessag
         
         while(bufOffset < bufSize)
         {
-            rc = GetTextField(buf, bufSize, &field, &bufOffset);
-            if(NOTOK(rc))
-            {
-                THROW_RESCODE(rc);
-            }
+            THROW_ERROR(GetTextField(buf, bufSize, &field, &bufOffset));
 
             switch(field.tag)
             {
@@ -521,7 +460,6 @@ static ResCodeT DecodeHeartBeatRecord(const char* buf, int32 bufSize, StepMessag
  */
 static ResCodeT DecodeMDRequestRecord(const char* buf, int32 bufSize, StepMessageT* pMsg)
 {
-    ResCodeT rc = NO_ERR;
     TRY
     {
         /* 行情请求记录初始化模板 */
@@ -539,11 +477,7 @@ static ResCodeT DecodeMDRequestRecord(const char* buf, int32 bufSize, StepMessag
         
         while(bufOffset < bufSize)
         {
-            rc = GetTextField(buf, bufSize, &field, &bufOffset);
-            if(NOTOK(rc))
-            {
-                THROW_RESCODE(rc);
-            }
+            THROW_ERROR(GetTextField(buf, bufSize, &field, &bufOffset));
 
             switch(field.tag)
             {
@@ -582,7 +516,6 @@ static ResCodeT DecodeMDRequestRecord(const char* buf, int32 bufSize, StepMessag
 static ResCodeT DecodeMDSnapshotFullRefreshRecord(const char* buf, 
         int32 bufSize, StepMessageT* pMsg)
 {
-    ResCodeT rc = NO_ERR;
     TRY
     {
         /* 全幅行情消息初始化模板 */
@@ -609,11 +542,7 @@ static ResCodeT DecodeMDSnapshotFullRefreshRecord(const char* buf,
         
         while(bufOffset < bufSize)
         {
-            rc = GetTextField(buf, bufSize, &field, &bufOffset);
-            if(NOTOK(rc))
-            {
-                THROW_RESCODE(rc);
-            }
+            THROW_ERROR(GetTextField(buf, bufSize, &field, &bufOffset));
       
             switch(field.tag)
             {
@@ -668,12 +597,8 @@ static ResCodeT DecodeMDSnapshotFullRefreshRecord(const char* buf,
                     STEP_EXTRACT_INT_VALUE(field, uint32, pRecord->mdDataLen);
 
                     /* Tag(96, RawData)必须紧跟Tag(95, RawDataLength) */
-                    rc = GetBinaryField(buf, bufSize, pRecord->mdDataLen, 
-                            &field, &bufOffset);
-                    if(NOTOK(rc))
-                    {
-                        THROW_RESCODE(rc);
-                    }
+                    THROW_ERROR(GetBinaryField(buf, bufSize, pRecord->mdDataLen, 
+                            &field, &bufOffset));
 
                     if(STEP_RAWDATA_TAG != field.tag)
                     {

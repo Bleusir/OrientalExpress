@@ -35,6 +35,7 @@ DD-MMM-YYYY INIT.    SIR    Modification Description
 
 #include "cmn/errlib.h"
 #include "udp/udpDriver.h"
+#include "tcp/tcpDriver.h"
 
 #include "epsClient.h"
 
@@ -53,6 +54,7 @@ typedef struct EpsHandleTag
     union EpsDriverTag
     {
         EpsUdpDriverT udpDriver;
+        EpsTcpDriverT tcpDriver;
     } driver;                   /* 驱动器 */
 } EpsHandleT;
 
@@ -61,7 +63,7 @@ typedef struct EpsHandleTag
  * 全局定义
  */
  
-static volatile hlong  g_isLibInited = FALSE;   /* 库初始化标记 */
+static volatile gint   g_isLibInited = FALSE;   /* 库初始化标记 */
 static volatile uint32 g_maxHid = 0;            /* 当前最大句柄ID */
 static GHashTable*     g_handlePool = NULL;     /* 句柄库 */
 static GStaticRecMutex g_libLock;               /* 库同步对象 */
@@ -92,7 +94,7 @@ ResCodeT EpsInitLib()
 {
     TRY
     {
-        if (g_atomic_int_compare_and_exchange((gint*)&g_isLibInited, FALSE, TRUE))
+        if (g_atomic_int_compare_and_exchange(&g_isLibInited, FALSE, TRUE))
         {
         	if (!g_thread_get_initialized())
         	{
@@ -126,7 +128,7 @@ ResCodeT EpsUninitLib()
 {
     TRY
     {
-        if (g_atomic_int_compare_and_exchange((gint*)&g_isLibInited, TRUE, FALSE))
+        if (g_atomic_int_compare_and_exchange(&g_isLibInited, TRUE, FALSE))
         {
             g_static_rec_mutex_lock(&g_libLock);
 
@@ -167,7 +169,7 @@ ResCodeT EpsCreateHandle(uint32* pHid, EpsConnModeT mode)
             THROW_ERROR(ERCD_EPS_INVALID_PARM, "pHid");
         }
 
-        if (mode != EPS_CONN_MODE_UDP && mode != EPS_CONN_MODE_TCP)
+        if (mode != EPS_CONNMODE_UDP && mode != EPS_CONNMODE_TCP)
         {
             THROW_ERROR(ERCD_EPS_INVALID_CONNMODE);
         }
@@ -185,15 +187,17 @@ ResCodeT EpsCreateHandle(uint32* pHid, EpsConnModeT mode)
         pHandle->connMode = mode;
 
         pHandle->hid = g_atomic_int_exchange_and_add((gint*)&g_maxHid, 1);
-        if (mode == EPS_CONN_MODE_UDP)
+        if (mode == EPS_CONNMODE_UDP)
         {
             EpsUdpDriverT* pDriver = &pHandle->driver.udpDriver;
-            
             pDriver->hid = pHandle->hid;
             THROW_ERROR(InitUdpDriver(pDriver));
         }
-        else /* mode == EPS_CONN_MODE_TCP */
+        else /* mode == EPS_CONNMODE_TCP */
         {
+            EpsTcpDriverT* pDriver = &pHandle->driver.tcpDriver;
+            pDriver->hid = pHandle->hid;
+            THROW_ERROR(InitTcpDriver(pDriver));
         }
 
         g_static_rec_mutex_lock(&g_libLock);
@@ -206,8 +210,7 @@ ResCodeT EpsCreateHandle(uint32* pHid, EpsConnModeT mode)
     {
         if (pHandle != NULL)
         {
-            free(pHandle);
-            pHandle = NULL;
+            DestroyHandle(pHandle);
         }
     }
     FINALLY
@@ -285,13 +288,15 @@ ResCodeT EpsRegisterSpi(uint32 hid, const EpsClientSpiT* pSpi)
             THROW_ERROR(ERCD_EPS_INVALID_HID);
         }
 
-        if (pHandle->connMode == EPS_CONN_MODE_UDP)
+        if (pHandle->connMode == EPS_CONNMODE_UDP)
         {
             EpsUdpDriverT* pDriver = &pHandle->driver.udpDriver;
             THROW_ERROR(RegisterUdpDriverSpi(pDriver, pSpi));
         }
-        else /* connMode == EPS_CONN_MODE_TCP */
+        else /* connMode == EPS_CONNMODE_TCP */
         {
+            EpsTcpDriverT* pDriver = &pHandle->driver.tcpDriver;
+            THROW_ERROR(RegisterTcpDriverSpi(pDriver, pSpi));
         }
     }
     CATCH
@@ -336,13 +341,15 @@ ResCodeT EpsConnect(uint32 hid, const char* address)
             THROW_ERROR(ERCD_EPS_INVALID_HID);
         }
 
-        if (pHandle->connMode == EPS_CONN_MODE_UDP)
+        if (pHandle->connMode == EPS_CONNMODE_UDP)
         {
             EpsUdpDriverT* pDriver = &pHandle->driver.udpDriver;
             THROW_ERROR(ConnectUdpDriver(pDriver, address));
         }
-        else /* connMode == EPS_CONN_MODE_TCP */
+        else /* connMode == EPS_CONNMODE_TCP */
         {
+            EpsTcpDriverT* pDriver = &pHandle->driver.tcpDriver;
+            THROW_ERROR(ConnectTcpDriver(pDriver, address));
         }
     }
     CATCH
@@ -379,13 +386,15 @@ ResCodeT EpsDisconnect(uint32 hid)
             THROW_ERROR(ERCD_EPS_INVALID_HID);
         }
 
-        if (pHandle->connMode == EPS_CONN_MODE_UDP)
+        if (pHandle->connMode == EPS_CONNMODE_UDP)
         {
             EpsUdpDriverT* pDriver = &pHandle->driver.udpDriver;
             THROW_ERROR(DisconnectUdpDriver(pDriver));
         }
-        else /* connMode == EPS_CONN_MODE_TCP */
+        else /* connMode == EPS_CONNMODE_TCP */
         {
+            EpsTcpDriverT* pDriver = &pHandle->driver.tcpDriver;
+            THROW_ERROR(DisconnectTcpDriver(pDriver));
         }
     }
     CATCH
@@ -411,14 +420,19 @@ ResCodeT EpsLogin(uint32 hid, const char* username, const char* password, uint16
 {
     TRY
     {
-        if (username == NULL)
+        if (username == NULL || username[0] == 0x00)
         {
             THROW_ERROR(ERCD_EPS_INVALID_PARM, "username");
         }
 
-        if (password == NULL)
+        if (password == NULL || password[0] == 0x00)
         {
             THROW_ERROR(ERCD_EPS_INVALID_PARM, "password");
+        }
+
+        if (heartbeatIntl == 0)
+        {
+            THROW_ERROR(ERCD_EPS_INVALID_PARM, heartbeatIntl);
         }
 
         if (! IsLibInited())
@@ -435,13 +449,15 @@ ResCodeT EpsLogin(uint32 hid, const char* username, const char* password, uint16
             THROW_ERROR(ERCD_EPS_INVALID_HID);
         }
 
-        if (pHandle->connMode == EPS_CONN_MODE_UDP)
+        if (pHandle->connMode == EPS_CONNMODE_UDP)
         {
             EpsUdpDriverT* pDriver = &pHandle->driver.udpDriver;
             THROW_ERROR(LoginUdpDriver(pDriver, username, password, heartbeatIntl));
         }
-        else /* connMode == EPS_CONN_MODE_TCP */
+        else /* connMode == EPS_CONNMODE_TCP */
         {
+            EpsTcpDriverT* pDriver = &pHandle->driver.tcpDriver;
+            THROW_ERROR(LoginTcpDriver(pDriver, username, password, heartbeatIntl));
         }
     }
     CATCH
@@ -483,13 +499,15 @@ ResCodeT EpsLogout(uint32 hid, const char* reason)
             THROW_ERROR(ERCD_EPS_INVALID_HID);
         }
 
-        if (pHandle->connMode == EPS_CONN_MODE_UDP)
+        if (pHandle->connMode == EPS_CONNMODE_UDP)
         {
             EpsUdpDriverT* pDriver = &pHandle->driver.udpDriver;
             THROW_ERROR(LogoutUdpDriver(pDriver, reason));
         }
-        else /* connMode == EPS_CONN_MODE_TCP */
+        else /* connMode == EPS_CONNMODE_TCP */
         {
+            EpsTcpDriverT* pDriver = &pHandle->driver.tcpDriver;
+            THROW_ERROR(LogoutTcpDriver(pDriver, reason));
         }
     }
     CATCH
@@ -527,13 +545,15 @@ ResCodeT EpsSubscribeMarketData(uint32 hid, EpsMktTypeT mktType)
             THROW_ERROR(ERCD_EPS_INVALID_HID);
         }
 
-        if (pHandle->connMode == EPS_CONN_MODE_UDP)
+        if (pHandle->connMode == EPS_CONNMODE_UDP)
         {
             EpsUdpDriverT* pDriver = &pHandle->driver.udpDriver;
             THROW_ERROR(SubscribeUdpDriver(pDriver, mktType));
         }
-        else /* connMode == EPS_CONN_MODE_TCP */
+        else /* connMode == EPS_CONNMODE_TCP */
         {
+            EpsTcpDriverT* pDriver = &pHandle->driver.tcpDriver;
+            THROW_ERROR(SubscribeTcpDriver(pDriver, mktType));
         }
     }
     CATCH
@@ -562,7 +582,7 @@ const char* GetLastError()
  */
 static BOOL IsLibInited()
 {
-    return (g_atomic_int_get((gint*)&g_isLibInited) == TRUE);
+    return (g_atomic_int_get(&g_isLibInited) == TRUE);
 }
 
 /**
@@ -572,13 +592,15 @@ static BOOL IsLibInited()
  */
 static void DisconnectHandle(EpsHandleT* pHandle)
 {
-    if (pHandle->connMode == EPS_CONN_MODE_UDP)
+    if (pHandle->connMode == EPS_CONNMODE_UDP)
     {
         EpsUdpDriverT* pDriver = &pHandle->driver.udpDriver;
         DisconnectUdpDriver(pDriver);
     }
-    else /* connMode == EPS_CONN_MODE_TCP */
+    else /* connMode == EPS_CONNMODE_TCP */
     {
+        EpsTcpDriverT* pDriver = &pHandle->driver.tcpDriver;
+        DisconnectTcpDriver(pDriver);
     }
 }
 
@@ -589,13 +611,15 @@ static void DisconnectHandle(EpsHandleT* pHandle)
  */
 static void DestroyHandle(EpsHandleT* pHandle)
 {
-    if (pHandle->connMode == EPS_CONN_MODE_UDP)
+    if (pHandle->connMode == EPS_CONNMODE_UDP)
     {
         EpsUdpDriverT* pDriver = &pHandle->driver.udpDriver;
         UninitUdpDriver(pDriver);
     }
-    else /* connMode == EPS_CONN_MODE_TCP */
+    else /* connMode == EPS_CONNMODE_TCP */
     {
+        EpsTcpDriverT* pDriver = &pHandle->driver.tcpDriver;
+        UninitTcpDriver(pDriver);
     }
 
     free(pHandle);

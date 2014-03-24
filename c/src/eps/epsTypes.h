@@ -6,7 +6,7 @@
 /**
  * @file    epsTypes.h
  *
- * 通用数据类型定义头文件
+ * 东方快车接口API数据类型定义头文件
  *
  * @version $Id
  * @since   2014/02/17
@@ -77,9 +77,6 @@ typedef float                       float32;
 typedef double                      float64;
 typedef long double                 float128;
 
-typedef long                        hlong;
-
-
 /*
  * NULL 定义
  */
@@ -90,7 +87,6 @@ typedef long                        hlong;
 #       define NULL                 ((void*) 0)
 #   endif
 #endif
-
 
 /*
  * BOOL 类型定义
@@ -103,7 +99,6 @@ typedef long                        hlong;
 
 #undef  FALSE
 #define FALSE                       (0)
-
 
 /* 
  * 错误码数据类型定义 

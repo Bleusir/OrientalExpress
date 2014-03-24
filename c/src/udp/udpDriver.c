@@ -6,7 +6,7 @@
 /**
  * @file    udpDriver.c
  *
- * UDP组播驱动器实现文件
+ * UDP行情驱动器实现文件
  *
  * @version $Id
  * @since   2014/02/14
@@ -86,14 +86,9 @@ ResCodeT InitUdpDriver(EpsUdpDriverT* pDriver)
 {
     TRY
     {
-        if (pDriver == NULL)
-        {
-            THROW_ERROR(ERCD_EPS_INVALID_PARM, "pDriver");
-        }
-
         THROW_ERROR(InitUdpChannel(&pDriver->channel));
         THROW_ERROR(InitMktDatabase(&pDriver->database));
-    
+        
         EpsUdpChannelListenerT listener =
         {
             pDriver,
@@ -115,13 +110,11 @@ ResCodeT InitUdpDriver(EpsUdpDriverT* pDriver)
             OnEpsEventOccurred
         };
         pDriver->spi = spi;
+
+        g_static_rec_mutex_init(&pDriver->lock);
     }
     CATCH
     {
-        if (pDriver != NULL)
-        {
-            UninitUdpDriver(pDriver);
-        }
     }
     FINALLY
     {
@@ -140,14 +133,14 @@ ResCodeT UninitUdpDriver(EpsUdpDriverT* pDriver)
 {
     TRY
     {
-        if (pDriver == NULL)
-        {
-            THROW_ERROR(ERCD_EPS_INVALID_PARM, "pDriver");
-        }
-
+        g_static_rec_mutex_lock(&pDriver->lock);
+            
         UninitUdpChannel(&pDriver->channel);
         UninitMktDatabase(&pDriver->database);
-        memset(pDriver, 0x00, sizeof(EpsUdpDriverT));
+
+        g_static_rec_mutex_unlock(&pDriver->lock);
+ 
+        g_static_rec_mutex_free(&pDriver->lock);
     }
     CATCH
     {
@@ -170,15 +163,7 @@ ResCodeT RegisterUdpDriverSpi(EpsUdpDriverT* pDriver, const EpsClientSpiT* pSpi)
 {
     TRY
     {
-        if (pDriver == NULL)
-        {
-            THROW_ERROR(ERCD_EPS_INVALID_PARM, "pDriver");
-        }
-
-        if (pSpi == NULL)
-        {
-            THROW_ERROR(ERCD_EPS_INVALID_PARM, "pSpi");
-        }
+        g_static_rec_mutex_lock(&pDriver->lock);
 
         if (pSpi->connectedNotify != NULL)
         {
@@ -214,12 +199,14 @@ ResCodeT RegisterUdpDriverSpi(EpsUdpDriverT* pDriver, const EpsClientSpiT* pSpi)
     }
     FINALLY
     {
+        g_static_rec_mutex_unlock(&pDriver->lock);
+
         RETURN_RESCODE;
     }
 }
 
 /**
- *  建立UDP服务器连接
+ * 建立UDP服务器连接
  *
  * @param   pDriver             in  - UDP驱动器
  * @param   address             in  - 连接地址
@@ -230,16 +217,8 @@ ResCodeT ConnectUdpDriver(EpsUdpDriverT* pDriver, const char* address)
 {
     TRY
     {
-        if (pDriver == NULL)
-        {
-            THROW_ERROR(ERCD_EPS_INVALID_PARM, "pDriver");
-        }
-
-        if (address == NULL)
-        {
-            THROW_ERROR(ERCD_EPS_INVALID_PARM, "address");
-        }
-
+        g_static_rec_mutex_lock(&pDriver->lock);
+   
         THROW_ERROR(ParseAddress(address, pDriver->channel.mcAddr, 
             &pDriver->channel.mcPort, pDriver->channel.localAddr));
         THROW_ERROR(StartupUdpChannel(&pDriver->channel));
@@ -249,6 +228,8 @@ ResCodeT ConnectUdpDriver(EpsUdpDriverT* pDriver, const char* address)
     }
     FINALLY
     {
+        g_static_rec_mutex_unlock(&pDriver->lock);
+
         RETURN_RESCODE;
     }
 }
@@ -264,18 +245,16 @@ ResCodeT DisconnectUdpDriver(EpsUdpDriverT* pDriver)
 {
     TRY
     {
-        if (pDriver == NULL)
-        {
-            THROW_ERROR(ERCD_EPS_INVALID_PARM, "pDriver");
-        }
-
-        ShutdownUdpChannel(&pDriver->channel);
+        g_static_rec_mutex_lock(&pDriver->lock);
+        THROW_ERROR(ShutdownUdpChannel(&pDriver->channel));
     }
     CATCH
     {
     }
     FINALLY
     {
+        g_static_rec_mutex_unlock(&pDriver->lock);
+ 
         RETURN_RESCODE;
     }
 }
@@ -292,24 +271,22 @@ ResCodeT LoginUdpDriver(EpsUdpDriverT* pDriver, const char* username,
 {
     TRY
     {
-        if (pDriver == NULL)
-        {
-            THROW_ERROR(ERCD_EPS_INVALID_PARM, "pDriver");
-        }
+        g_static_rec_mutex_lock(&pDriver->lock);
 
-        EpsUdpChannelEventT* pEvent = calloc(1, sizeof(EpsUdpChannelEventT));
-        if (pEvent == NULL)
+        EpsUdpChannelEventT event = 
         {
-            THROW_ERROR(ERCD_EPS_OPERSYSTEM_ERROR, strerror(errno));
-        }
-        pEvent->eventType = EPS_UDP_EVENTTYPE_LOGIN;
-        THROW_ERROR(TriggerUdpChannelEvent(&pDriver->channel, pEvent));
+            EPS_UDP_EVENTTYPE_LOGIN, 0
+        };
+
+        THROW_ERROR(TriggerUdpChannelEvent(&pDriver->channel, event));
     }
     CATCH
     {
     }
     FINALLY
     {
+        g_static_rec_mutex_unlock(&pDriver->lock);
+
         RETURN_RESCODE;
     }
 }
@@ -325,24 +302,22 @@ ResCodeT LogoutUdpDriver(EpsUdpDriverT* pDriver, const char* reason)
 {
     TRY
     {
-        if (pDriver == NULL)
-        {
-            THROW_ERROR(ERCD_EPS_INVALID_PARM, "pDriver");
-        }
+        g_static_rec_mutex_lock(&pDriver->lock);
 
-        EpsUdpChannelEventT* pEvent = calloc(1, sizeof(EpsUdpChannelEventT));
-        if (pEvent == NULL)
+        EpsUdpChannelEventT event = 
         {
-            THROW_ERROR(ERCD_EPS_OPERSYSTEM_ERROR, strerror(errno));
-        }
-        pEvent->eventType = EPS_UDP_EVENTTYPE_LOGOUT;
-        THROW_ERROR(TriggerUdpChannelEvent(&(pDriver->channel), pEvent));
+            EPS_UDP_EVENTTYPE_LOGOUT, 0
+        };
+
+        THROW_ERROR(TriggerUdpChannelEvent(&pDriver->channel, event));
     }
     CATCH
     {
     }
     FINALLY
     {
+        g_static_rec_mutex_unlock(&pDriver->lock);
+
         RETURN_RESCODE;
     }
 }
@@ -358,30 +333,23 @@ ResCodeT SubscribeUdpDriver(EpsUdpDriverT* pDriver, EpsMktTypeT mktType)
 {
     TRY
     {
-        if (pDriver == NULL)
-        {
-            THROW_ERROR(ERCD_EPS_INVALID_PARM, "pDriver");
-        }
+        g_static_rec_mutex_lock(&pDriver->lock);
 
-        if (mktType > EPS_MKTTYPE_NUM)
+        THROW_ERROR(SubscribeMktData(&pDriver->database, mktType));
+
+        EpsUdpChannelEventT event = 
         {
-            THROW_ERROR(ERCD_EPS_INVALID_MKTTYPE);
-        }
-      
-        EpsUdpChannelEventT* pEvent = calloc(1, sizeof(EpsUdpChannelEventT));
-        if (pEvent == NULL)
-        {
-            THROW_ERROR(ERCD_EPS_OPERSYSTEM_ERROR, strerror(errno));
-        }
-        pEvent->eventType = EPS_UDP_EVENTTYPE_SUBSCRIBED;
-        pEvent->eventParam = (uint32)mktType;
-        THROW_ERROR(TriggerUdpChannelEvent(&pDriver->channel, pEvent));
+            EPS_UDP_EVENTTYPE_SUBSCRIBED, (uint32)mktType
+        };
+        THROW_ERROR(TriggerUdpChannelEvent(&pDriver->channel, event));
     }
     CATCH
     {
     }
     FINALLY
     {
+        g_static_rec_mutex_unlock(&pDriver->lock);
+
         RETURN_RESCODE;
     }
 }
@@ -393,11 +361,6 @@ ResCodeT SubscribeUdpDriver(EpsUdpDriverT* pDriver, EpsMktTypeT mktType)
  */
 static void OnChannelConnected(void* pListener)
 {
-    if (pListener == NULL) 
-    {
-        return;
-    }
-
     EpsUdpDriverT* pDriver = (EpsUdpDriverT*)pListener;
     pDriver->spi.connectedNotify(pDriver->hid);
 }
@@ -411,12 +374,8 @@ static void OnChannelConnected(void* pListener)
  */
 static void OnChannelDisconnected(void* pListener, ResCodeT result, const char* reason)
 {
-    if (pListener == NULL)
-    {
-        return;
-    }
-    
     EpsUdpDriverT* pDriver = (EpsUdpDriverT*)pListener;
+    UnSubscribeAllMktData(&pDriver->database);
     pDriver->spi.disconnectedNotify(pDriver->hid, result, reason);
 }
 
@@ -430,11 +389,6 @@ static void OnChannelDisconnected(void* pListener, ResCodeT result, const char* 
  */
 static void OnChannelReceived(void* pListener, ResCodeT result, const char* data, uint32 dataLen)
 {
-    if (pListener == NULL)
-    {
-        return;
-    }
-    
     EpsUdpDriverT* pDriver = (EpsUdpDriverT*)pListener;
 
     ResCodeT rc = NO_ERR;
@@ -455,7 +409,14 @@ static void OnChannelReceived(void* pListener, ResCodeT result, const char* data
     rc = AcceptMktData(&pDriver->database, &msg);
     if (NOTOK(rc))
     {
-        return;
+        if (rc == ERCD_EPS_DATASOURCE_CHANGED)
+        {
+            pDriver->spi.eventOccuredNotify(pDriver->hid, EPS_EVENTTYPE_WARNING, rc, ErrGetErrorDscr());
+        }
+        else 
+        {
+            return;
+        }
     }
 
     EpsMktDataT mktData;
@@ -476,12 +437,8 @@ static void OnChannelReceived(void* pListener, ResCodeT result, const char* data
  */
 static void OnChannelEventOccurred(void* pListener, EpsUdpChannelEventT* pEvent)
 {
-    if (pListener == NULL || pEvent == NULL)
-    {
-        return;
-    }
-
     EpsUdpDriverT* pDriver = (EpsUdpDriverT*)pListener;
+
     switch (pEvent->eventType)
     {
         case EPS_UDP_EVENTTYPE_LOGIN:
@@ -492,6 +449,7 @@ static void OnChannelEventOccurred(void* pListener, EpsUdpChannelEventT* pEvent)
         }
         case EPS_UDP_EVENTTYPE_LOGOUT:
         {
+            UnSubscribeAllMktData(&pDriver->database);
             pDriver->spi.logoutRspNotify(pDriver->hid, 
                     NO_ERR, "logout succeed");
             break;
@@ -522,7 +480,7 @@ static ResCodeT ParseAddress(const char* address, char* mcAddr, uint16* mcPort, 
     TRY
     {
         /* 字符串格式为230.11.1.1:3333;196.123.71.1 */
-        char* p1, *p2;
+        const char* p1, *p2;
 
         int len = strlen(address);
         

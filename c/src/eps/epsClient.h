@@ -6,7 +6,7 @@
 /**
  * @file    epsClient.h
  *
- * Express接口API定义头文件
+ * 东方快车接口API定义头文件
  *
  * @version $Id
  * @since   2014/02/14
@@ -58,7 +58,7 @@ ResCodeT EpsInitLib();
  *
  * @return  成功返回NO_ERR，否则返回错误码
  *
- * memo: 必须是最后一个调用的Express库函数，调用该函数会关闭所有连接并释放资源
+ * memo: 必须是最后一个调用的Express库函数，调用该函数会关闭所有句柄并释放资源
  */
 ResCodeT EpsUninitLib();
 
@@ -70,8 +70,8 @@ ResCodeT EpsUninitLib();
  *
  * @return  成功返回NO_ERR，否则返回错误码
  *
- * memo: 句柄是用于执行后续连接、登陆、订阅等操作的基本单位，
- *       句柄ID用于唯一标识句柄，创建句柄用于分配相关资源
+ * memo: 句柄是用于执行后续连接、登陆、订阅等操作的基本单位；句柄ID用于唯一标识句柄。
+ *       创建句柄用于分配相关资源
  */
 ResCodeT EpsCreateHandle(uint32* pHid, EpsConnModeT mode);
 
@@ -137,7 +137,7 @@ ResCodeT EpsDisconnect(uint32 hid);
  * @return  成功返回NO_ERR，否则返回错误码
  *
  * memo: 向服务器发出登陆指令，本接口在连接成功后允许调用，登陆结果通过客户端回调函数loginRspNotify通知用户，
- *       本接口对UDP模式的句柄不适用
+ *       本接口对于UDP模式的句柄是可选调用，总是返回成功。
  */
 ResCodeT EpsLogin(uint32 hid, const char* username, const char* password, uint16 heartbeatIntl);
 
@@ -149,7 +149,7 @@ ResCodeT EpsLogin(uint32 hid, const char* username, const char* password, uint16
  * @return  成功返回NO_ERR，否则返回错误码
  *
  * memo: 向服务器发出登出指令，本接口在登陆成功后允许调用，登出结果通过客户端回调函数logoutRspNotify通知用户，
- *       本接口对UDP模式的句柄不适用
+ *       本接口对于UDP模式的句柄是可选调用，总是返回成功。
  */
 ResCodeT EpsLogout(uint32 hid, const char* reason);
 

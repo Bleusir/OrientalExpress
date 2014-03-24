@@ -4,9 +4,9 @@
  */
 
 /**
- * @file    mktData.h
+ * @file    mktDatabase.h
  *
- * 行情数据定义头文件
+ * 行情数据库定义头文件
  *
  * @version $Id
  * @since   2014/03/04
@@ -24,8 +24,8 @@ DD-MMM-YYYY INIT.    SIR    Modification Description
 </pre>
 */
 
-#ifndef EPS_MKTDATA_H
-#define EPS_MKTDATA_H
+#ifndef EPS_MKTDATABASE_H
+#define EPS_MKTDATABASE_H
 
 
 #ifdef __cplusplus
@@ -36,7 +36,7 @@ extern "C" {
  * 包含头文件
  */
 
-#include "errlib.h"
+#include "cmn/errlib.h"
 #include "eps/epsData.h"
 #include "step/stepMessage.h"
 
@@ -46,26 +46,48 @@ extern "C" {
  */
  
 /* 
- * 错误信息结构体 
+ * 行情数据库定义结构体 
  */
 typedef struct EpsMktDatabaseTag
 {
-    EpsMktTypeT     mktType[EPS_MKTTYPE_NUM];
-    uint32          applID[EPS_MKTTYPE_NUM];
-    uint64          applSeqNum[EPS_MKTTYPE_NUM];
+    BOOL            isSubscribed[EPS_MKTTYPE_NUM + 1];  
+    uint32          applID;
+    uint64          applSeqNum[EPS_MKTTYPE_NUM + 1];
 } EpsMktDatabaseT;
 
 
 /**
  * 接口函数定义
  */
- 
+
+/*
+ * 初始化行情数据库
+ */
 ResCodeT InitMktDatabase(EpsMktDatabaseT* pDatabase);
 
+/*
+ * 反初始化行情数据库
+ */
 ResCodeT UninitMktDatabase(EpsMktDatabaseT* pDatabase);
 
+/*
+ * 订阅行情数据
+ */
+ResCodeT SubscribeMktData(EpsMktDatabaseT* pDatabase, EpsMktTypeT mktType);
+
+/**
+ * 取消所有行情数据订阅
+ */
+ResCodeT UnSubscribeAllMktData(EpsMktDatabaseT* pDatabase);
+
+/*
+ * 判断是否接受该条行情数据
+ */
 ResCodeT AcceptMktData(EpsMktDatabaseT* pDatabase, const StepMessageT* pMsg);
 
+/*
+ * 转换行情数据格式
+ */
 ResCodeT ConvertMktData(const StepMessageT* pMsg, EpsMktDataT* pData);
 
 
@@ -73,4 +95,4 @@ ResCodeT ConvertMktData(const StepMessageT* pMsg, EpsMktDataT* pData);
 }
 #endif
 
-#endif /* EPS_MKTDATA_H */
+#endif /* EPS_MKTDATABASE_H */

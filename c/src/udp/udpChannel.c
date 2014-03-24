@@ -80,21 +80,17 @@ ResCodeT InitUdpChannel(EpsUdpChannelT* pChannel)
 {
     TRY
     {
-        if (pChannel == NULL)
-        {
-            THROW_ERROR(ERCD_EPS_INVALID_PARM, "pChannel");
-        }
-
         if (IsChannelInited(pChannel))
         {
             THROW_ERROR(ERCD_EPS_DUPLICATE_INITED, "channel");
         }
 
         pChannel->socket = -1;
+        pChannel->tid = 0;
         pChannel->pEventQueue = g_async_queue_new();
         pChannel->canStop = FALSE;
 
-        EpsUdpChannelListenerT listener = 
+        EpsUdpChannelListenerT listener =
         {
             NULL,
             OnChannelConnected,
@@ -102,7 +98,7 @@ ResCodeT InitUdpChannel(EpsUdpChannelT* pChannel)
             OnChannelReceived,
             OnChannelEventOccurred
         };
-        pChannel->listener = listener;
+        pChannel->listener = listener; 
     }
     CATCH
     {
@@ -124,11 +120,6 @@ ResCodeT UninitUdpChannel(EpsUdpChannelT* pChannel)
 {
     TRY
     {
-        if (pChannel == NULL)
-        {
-            THROW_ERROR(ERCD_EPS_INVALID_PARM, "pChannel");
-        }
-
         if (! IsChannelInited(pChannel))
         {
             THROW_RESCODE(NO_ERR);
@@ -144,6 +135,7 @@ ResCodeT UninitUdpChannel(EpsUdpChannelT* pChannel)
 
         if (pChannel->socket != -1)
         {
+            shutdown(pChannel->socket, SHUT_RDWR);
             close(pChannel->socket);
             pChannel->socket = -1;
         }
@@ -168,11 +160,6 @@ ResCodeT StartupUdpChannel(EpsUdpChannelT* pChannel)
 {
     TRY
     {
-        if (pChannel == NULL)
-        {
-            THROW_ERROR(ERCD_EPS_INVALID_PARM, "pChannel");
-        }
-
         if (IsChannelStarted(pChannel))
         {
             THROW_ERROR(ERCD_EPS_DUPLICATE_CONNECT);
@@ -208,11 +195,6 @@ ResCodeT ShutdownUdpChannel(EpsUdpChannelT* pChannel)
 {
     TRY
     {
-        if (pChannel == NULL)
-        {
-            THROW_ERROR(ERCD_EPS_INVALID_PARM, "pChannel");
-        }
-
         if (! IsChannelStarted(pChannel))
         {
             THROW_RESCODE(NO_ERR);
@@ -235,6 +217,43 @@ ResCodeT ShutdownUdpChannel(EpsUdpChannelT* pChannel)
     }
 }
 
+
+/*
+ * 触发UDP通道异步事件
+ *
+ * @param   pChannel            in  - UDP通道对象
+ * @param   event               in  - 事件对象
+ *
+ * @return  成功返回NO_ERR，否则返回错误码
+ */
+ResCodeT TriggerUdpChannelEvent(EpsUdpChannelT* pChannel, const EpsUdpChannelEventT event)
+{
+    TRY
+    {
+        if(! IsChannelInited(pChannel))
+        {
+            THROW_ERROR(ERCD_EPS_UNINITED, "channel");
+        }
+
+        EpsUdpChannelEventT* pEvent = (EpsUdpChannelEventT*)calloc(1, sizeof(EpsUdpChannelEventT));
+        if (pEvent == NULL)
+        {
+            THROW_ERROR(ERCD_EPS_OPERSYSTEM_ERROR, strerror(errno));
+        }
+        *pEvent = event;
+
+        g_async_queue_push(pChannel->pEventQueue, (gpointer)pEvent);
+    }
+    CATCH
+    {
+    }
+    FINALLY
+    {
+        RETURN_RESCODE;
+    }
+}
+
+
 /**
  * 注册UDP通道监听者接口
  *
@@ -247,16 +266,6 @@ ResCodeT RegisterUdpChannelListener(EpsUdpChannelT* pChannel, const EpsUdpChanne
 {
     TRY
     {
-        if (pChannel == NULL)
-        {
-            THROW_ERROR(ERCD_EPS_INVALID_PARM, "pChannel");
-        }
-
-        if (pListener == NULL)
-        {
-            THROW_ERROR(ERCD_EPS_INVALID_PARM, "pListener");
-        }
-
         if(! IsChannelInited(pChannel))
         {
             THROW_ERROR(ERCD_EPS_UNINITED, "channel");
@@ -290,45 +299,6 @@ ResCodeT RegisterUdpChannelListener(EpsUdpChannelT* pChannel, const EpsUdpChanne
 }
 
 
-/*
- * 触发UDP通道异步事件
- *
- * @param   pChannel            in  - UDP通道对象
- * @param   pEvent              in  - 事件对象
- *
- * @return  成功返回NO_ERR，否则返回错误码
- */
-ResCodeT TriggerUdpChannelEvent(EpsUdpChannelT* pChannel, EpsUdpChannelEventT* pEvent)
-{
-    TRY
-    {
-        if (pChannel == NULL)
-        {
-            THROW_ERROR(ERCD_EPS_INVALID_PARM, "pChannel");
-        }
-
-        if (pEvent == NULL)
-        {
-            THROW_ERROR(ERCD_EPS_INVALID_PARM, "pEvent");
-        }
-
-        if(! IsChannelInited(pChannel))
-        {
-            THROW_ERROR(ERCD_EPS_UNINITED, "channel");
-        }
-
-        g_async_queue_push(pChannel->pEventQueue, (gpointer)pEvent);
-    }
-    CATCH
-    {
-    }
-    FINALLY
-    {
-        RETURN_RESCODE;
-    }
-}
-
-
 /**
  * UDP通道任务线程函数
  *
@@ -348,7 +318,7 @@ static void* ChannelTask(void* arg)
                 pChannel->listener.disconnectedNotify(pChannel->listener.pListener,
                     ErrGetErrorCode(), ErrGetErrorDscr());
                     
-                usleep(EPS_UDPCHANNEL_RECONNECT_INTERVAL * 1000);
+                usleep(EPS_SOCKET_RECONNECT_INTERVAL * 1000);
                 continue;
             }
             else
@@ -386,14 +356,16 @@ static ResCodeT OpenChannel(EpsUdpChannelT* pChannel)
         fd = socket(AF_INET, SOCK_DGRAM, 0);
         if (fd == -1)
         {
-            THROW_ERROR(ERCD_EPS_SOCKET_ERROR, strerror(errno));
+            ErrSetError(ERCD_EPS_SOCKET_ERROR, strerror(errno));
+            THROW_RESCODE(ERCD_EPS_SOCKET_ERROR);
         }
    
         BOOL reuseaddr = TRUE;
         result = setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (const char*)&reuseaddr, sizeof(reuseaddr));
         if (result == -1)
         {
-            THROW_ERROR(ERCD_EPS_SOCKET_ERROR, strerror(errno));
+            ErrSetError(ERCD_EPS_SOCKET_ERROR, strerror(errno));
+            THROW_RESCODE(ERCD_EPS_SOCKET_ERROR);
         }
 
         struct sockaddr_in mcAddr;
@@ -406,14 +378,16 @@ static ResCodeT OpenChannel(EpsUdpChannelT* pChannel)
         result = bind(fd, (struct sockaddr*)&mcAddr, sizeof(mcAddr));
         if (result == -1)
         {
-            THROW_ERROR(ERCD_EPS_SOCKET_ERROR, strerror(errno));
+            ErrSetError(ERCD_EPS_SOCKET_ERROR, strerror(errno));
+            THROW_RESCODE(ERCD_EPS_SOCKET_ERROR);
         }   
 
         struct ip_mreq mreq = { {inet_addr(pChannel->mcAddr)}, {inet_addr(pChannel->localAddr)} };
         result = setsockopt(fd, IPPROTO_IP, IP_ADD_MEMBERSHIP, &mreq, sizeof(mreq));
         if (result == -1)
         {
-            THROW_ERROR(ERCD_EPS_SOCKET_ERROR, strerror(errno));
+            ErrSetError(ERCD_EPS_SOCKET_ERROR, strerror(errno));
+            THROW_RESCODE(ERCD_EPS_SOCKET_ERROR);
         }
 
         int flags = fcntl(fd, F_GETFL, 0);
@@ -424,6 +398,8 @@ static ResCodeT OpenChannel(EpsUdpChannelT* pChannel)
         }
 
         pChannel->socket = fd;
+
+        ClearEventQueue(pChannel);
     }
     CATCH
     {
@@ -453,6 +429,7 @@ static ResCodeT CloseChannel(EpsUdpChannelT* pChannel)
     {
         if (pChannel->socket != -1)
         {
+            shutdown(pChannel->socket, SHUT_RDWR);
             close(pChannel->socket);
 
             pChannel->socket = -1;
@@ -484,7 +461,11 @@ static ResCodeT HandleEvent(EpsUdpChannelT* pChannel)
         EpsUdpChannelEventT* pEvent = 
             (EpsUdpChannelEventT*)g_async_queue_try_pop_unlocked(pChannel->pEventQueue);
 
-        pChannel->listener.eventOccurredNotify(pChannel->listener.pListener, pEvent);
+        if (pEvent != NULL)
+        {
+            pChannel->listener.eventOccurredNotify(pChannel->listener.pListener, pEvent);
+            free(pEvent);
+        }
     }
     CATCH
     {
@@ -514,31 +495,34 @@ static ResCodeT ReceiveData(EpsUdpChannelT* pChannel)
         FD_SET(pChannel->socket, &fdset);
 
         struct timeval timeout;
-        timeout.tv_sec = EPS_UDPCHANNEL_RECV_TIMEOUT / 1000;
-        timeout.tv_usec = (EPS_UDPCHANNEL_RECV_TIMEOUT % 1000) * 1000;
+        timeout.tv_sec = EPS_SOCKET_RECV_TIMEOUT / 1000;
+        timeout.tv_usec = (EPS_SOCKET_RECV_TIMEOUT % 1000) * 1000;
 
         int result = select(pChannel->socket+1, &fdset, 0, 0, &timeout);
         if (result == -1)
         {
-            THROW_ERROR(ERCD_EPS_SOCKET_ERROR, strerror(errno));
+            ErrSetError(ERCD_EPS_SOCKET_ERROR, strerror(errno));
+            THROW_RESCODE(ERCD_EPS_SOCKET_ERROR);
         }
         
         if (FD_ISSET(pChannel->socket, &fdset))
         {
-            int len = recvfrom(pChannel->socket, pChannel->recvBuffer, EPS_UDPCHANNEL_RECVBUFFER_LEN, 
+            int len = recvfrom(pChannel->socket, pChannel->recvBuffer, EPS_SOCKET_RECVBUFFER_LEN, 
                 0, (struct sockaddr*)&srcAddr, &addrlen);
-            if (len == -1)
-            {
-                THROW_ERROR(ERCD_EPS_SOCKET_ERROR, strerror(errno));
-            }
-            else if (len == 0)
-            {
-                CloseChannel(pChannel);
-            }
-            else
+            if (len > 0)
             {
                 pChannel->listener.receivedNotify(pChannel->listener.pListener, 
                         NO_ERR, pChannel->recvBuffer, (uint32)len);
+            }
+            else if(len == 0)
+            {
+                ErrSetError(ERCD_EPS_SOCKET_ERROR, "Connection closed by remote");
+                THROW_RESCODE(ERCD_EPS_SOCKET_ERROR);
+            }
+            else
+            {
+                ErrSetError(ERCD_EPS_SOCKET_ERROR, strerror(errno));
+                THROW_RESCODE(ERCD_EPS_SOCKET_ERROR);
             }
         }
     }

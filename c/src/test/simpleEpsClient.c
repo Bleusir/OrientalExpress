@@ -4,9 +4,9 @@
  */
 
 /**
- * @file    epsClientTest.c
+ * @file    simpleEpsClient.c
  *
- * Express接口API测试程序
+ * Express接口API简单测试程序(仅适用于UDP)
  *
  * @version $Id
  * @since   2014/03/05
@@ -42,9 +42,9 @@ DD-MMM-YYYY INIT.    SIR    Modification Description
 
 static void Usage()
 {
-    printf("Usage: epsClientTest <mcAddr:mcPort;localAddr>\n\n" \
+    printf("Usage: epsSimple <mcAddr:mcPort;localAddr>\n\n" \
            "example:\n" \
-           "epsClientTest 230.11.1.1:3300;196.123.71.3\n");
+           "epsSimple \"230.11.1.1:3300;196.123.71.3\"\n");
 }
 
 static void OnEpsConnectedTest(uint32 hid)
@@ -52,10 +52,22 @@ static void OnEpsConnectedTest(uint32 hid)
     printf("==> OnConnected(), hid: %d\n", hid);
 }
 
+static void OnEpsDisconnectedTest(uint32 hid, ResCodeT result, const char* reason)
+{
+    printf("==> OnDisconnected(), hid: %d, reason: %s\n", hid, reason);
+}
+
 static void OnEpsMktDataArrivedTest(uint32 hid, const EpsMktDataT* pMktData)
 {
     printf("==> OnMktDataArrived(), hid: %d, applID: %d, applSeqNum: %lld\n", hid, pMktData->applID, pMktData->applSeqNum);
 }
+
+static void OnEpsEventOccurredTest(uint32 hid, EpsEventTypeT eventType, ResCodeT eventCode, const char* eventText)
+{
+    printf("==> OnEventOccurred(), hid: %d, eventType: %d, eventCode: %u, eventText: %s\n", 
+        hid, eventType, eventCode, eventText);
+}
+
 
 
 int main(int argc, char *argv[])
@@ -88,7 +100,7 @@ int main(int argc, char *argv[])
 
         printf("==> call EpsCreateHandle() ... ");
         uint32 hid;
-        rc = EpsCreateHandle(&hid, EPS_CONN_MODE_UDP);
+        rc = EpsCreateHandle(&hid, EPS_CONNMODE_UDP);
         if (OK(rc))
         {
             printf("OK. hid: %d\n", hid);
@@ -103,12 +115,12 @@ int main(int argc, char *argv[])
         EpsClientSpiT spi = 
         {
             OnEpsConnectedTest,
-            NULL,
+            OnEpsDisconnectedTest,
             NULL,
             NULL,
             NULL,
             OnEpsMktDataArrivedTest,
-            NULL
+            OnEpsEventOccurredTest,
         };
  
         rc = EpsRegisterSpi(hid, &spi);
@@ -124,6 +136,18 @@ int main(int argc, char *argv[])
 
         printf("==> call EpsConnect() ... ");
         rc = EpsConnect(hid, argv[1]);
+        if (OK(rc))
+        {
+            printf("OK. hid :%d\n", hid);
+        }
+        else
+        {
+            printf("failed, Error: %s!!!\n", GetLastError());
+            THROW_RESCODE(rc);
+        }
+
+        printf("==> call EpsSubscribeMarketData() ... ");
+        rc = EpsSubscribeMarketData(hid, EPS_MKTTYPE_ALL);
         if (OK(rc))
         {
             printf("OK. hid :%d\n", hid);

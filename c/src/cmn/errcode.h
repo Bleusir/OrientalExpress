@@ -31,10 +31,12 @@
 extern "C" {
 #endif
 
-
 /**
  * 错误码定义
  */
+
+/* 执行成功返回码 */
+#define NO_ERR                                  1
 
 /* Express接口库错误码 */
 #define ERCD_EPS_OPERSYSTEM_ERROR               0x20010001
@@ -50,6 +52,13 @@ extern "C" {
 #define ERCD_EPS_UNEXPECTED_MSGTYPE             0x2001000b
 #define ERCD_EPS_INVALID_ADDRESS                0x2001000c
 #define ERCD_EPS_DUPLICATE_CONNECT              0x2001000d
+#define ERCD_EPS_MKTTYPE_UNSUBSCRIBED           0x2001000e
+#define ERCD_EPS_MKTDATA_BACKFLOW               0x2001000f
+#define ERCD_EPS_DATASOURCE_CHANGED             0x20010010
+#define ERCD_EPS_MKTTYPE_DUPSUBSCRIBED          0x20010011
+#define ERCD_EPS_INVALID_OPERATION              0x20010012
+#define ERCD_EPS_LOGIN_FAILED                   0x20010013
+#define ERCD_EPS_SUBMARKETDATA_FAILED           0x20010014
 
 
 /* STEP协议错误码 */

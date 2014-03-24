@@ -182,8 +182,8 @@ typedef struct LogonRecordTag
 {
     char    encryptMethod;
     uint16  heartBtInt;
-    char    username[STEP_USERNAME_MAX_LEN];
-    char    password[STEP_PASSWORD_MAX_LEN];
+    char    username[STEP_USERNAME_MAX_LEN+1];
+    char    password[STEP_PASSWORD_MAX_LEN+1];
 } LogonRecordT;
 
 /*

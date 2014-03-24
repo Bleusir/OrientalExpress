@@ -102,5 +102,6 @@ ResCodeT ErrGetErrorCode()
  */
 void ErrClearError()
 {
+    __errCode    = NO_ERR;
     __errDscr[0] = '\0';
 }
