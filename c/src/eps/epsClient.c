@@ -28,16 +28,24 @@ DD-MMM-YYYY INIT.    SIR    Modification Description
  * 包含头文件
  */
 
-#include <glib.h>
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
 
 #include "cmn/errlib.h"
+#include "cmn/atomic.h"
+#include "cmn/recMutex.h"
 #include "udp/udpDriver.h"
 #include "tcp/tcpDriver.h"
 
 #include "epsClient.h"
+
+
+/**
+ * 宏定义
+ */
+
+#define EPS_HANDLE_MAX_COUNT            32  /* 句柄最大个数 */
 
 
 /**
@@ -63,10 +71,9 @@ typedef struct EpsHandleTag
  * 全局定义
  */
  
-static volatile gint   g_isLibInited = FALSE;   /* 库初始化标记 */
-static volatile uint32 g_maxHid = 0;            /* 当前最大句柄ID */
-static GHashTable*     g_handlePool = NULL;     /* 句柄库 */
-static GStaticRecMutex g_libLock;               /* 库同步对象 */
+static volatile int    g_isLibInited = FALSE;   /* 库初始化标记 */
+static EpsHandleT      g_handlePool[EPS_HANDLE_MAX_COUNT];/* 句柄池 */
+static EpsRecMutexT    g_libLock;               /* 库同步对象 */
 
 
 /**
@@ -75,10 +82,14 @@ static GStaticRecMutex g_libLock;               /* 库同步对象 */
 
 static BOOL IsLibInited();
 
+
+static ResCodeT InitHandlePool();
+static ResCodeT UninitHandlePool();
+static ResCodeT GetNewHandle(EpsHandleT** ppHandle);
+static ResCodeT FindHandle(uint32 hid, EpsHandleT** ppHandle);
+
 static void DisconnectHandle(EpsHandleT* pHandle);
 static void DestroyHandle(EpsHandleT* pHandle);
-
-static void _disposeHandle(gpointer data);
 
 
 /**
@@ -94,16 +105,10 @@ ResCodeT EpsInitLib()
 {
     TRY
     {
-        if (g_atomic_int_compare_and_exchange(&g_isLibInited, FALSE, TRUE))
+        if (EpsAtomicIntCompareAndExchange(&g_isLibInited, FALSE, TRUE))
         {
-        	if (!g_thread_get_initialized())
-        	{
-        		g_thread_init(NULL);
-        	}
-
-            g_handlePool = g_hash_table_new_full(g_int_hash, g_int_equal, NULL, _disposeHandle);
-            g_maxHid = 1;
-            g_static_rec_mutex_init(&g_libLock);
+            InitHandlePool();
+            InitRecMutex(&g_libLock);
         }
         else
         {
@@ -128,17 +133,13 @@ ResCodeT EpsUninitLib()
 {
     TRY
     {
-        if (g_atomic_int_compare_and_exchange(&g_isLibInited, TRUE, FALSE))
+        if (EpsAtomicIntCompareAndExchange(&g_isLibInited, TRUE, FALSE))
         {
-            g_static_rec_mutex_lock(&g_libLock);
+            LockRecMutex(&g_libLock);
+            UninitHandlePool();
+            UnlockRecMutex(&g_libLock);
 
-            g_hash_table_destroy(g_handlePool);
-            g_handlePool = NULL;
-            g_maxHid = 0;
-
-            g_static_rec_mutex_unlock(&g_libLock);
-
-            g_static_rec_mutex_free(&g_libLock);
+            UninitRecMutex(&g_libLock);
         }
     }
     CATCH
@@ -178,15 +179,14 @@ ResCodeT EpsCreateHandle(uint32* pHid, EpsConnModeT mode)
         {
             THROW_ERROR(ERCD_EPS_UNINITED, "library");
         }
-      
-        pHandle = (EpsHandleT*)calloc(1, sizeof(EpsHandleT));
-        if (pHandle == NULL)
-        {
-            THROW_ERROR(ERCD_EPS_OPERSYSTEM_ERROR, strerror(errno));
-        }
-        pHandle->connMode = mode;
 
-        pHandle->hid = g_atomic_int_exchange_and_add((gint*)&g_maxHid, 1);
+        EpsHandleT* pHandle = NULL;
+        LockRecMutex(&g_libLock);
+        ResCodeT rc = GetNewHandle(&pHandle);
+        UnlockRecMutex(&g_libLock);
+        THROW_ERROR(rc);
+
+        pHandle->connMode = mode;
         if (mode == EPS_CONNMODE_UDP)
         {
             EpsUdpDriverT* pDriver = &pHandle->driver.udpDriver;
@@ -199,10 +199,6 @@ ResCodeT EpsCreateHandle(uint32* pHid, EpsConnModeT mode)
             pDriver->hid = pHandle->hid;
             THROW_ERROR(InitTcpDriver(pDriver));
         }
-
-        g_static_rec_mutex_lock(&g_libLock);
-        g_hash_table_insert(g_handlePool, (void*)(&pHandle->hid), pHandle);
-        g_static_rec_mutex_unlock(&g_libLock);
 
         *pHid = pHandle->hid;
     }
@@ -235,18 +231,17 @@ ResCodeT EpsDestroyHandle(uint32 hid)
             THROW_ERROR(ERCD_EPS_UNINITED, "library");
         }
 
-        g_static_rec_mutex_lock(&g_libLock);
-        EpsHandleT* pHandle = (EpsHandleT*)g_hash_table_lookup(g_handlePool, (gconstpointer)&hid);
-        if (pHandle != NULL)
+        EpsHandleT* pHandle = NULL;
+        LockRecMutex(&g_libLock);
+        ResCodeT rc = FindHandle(hid, &pHandle);
+        if (OK(rc))
         {
-            g_hash_table_remove(g_handlePool, (gconstpointer)&hid);
+            DisconnectHandle(pHandle);
+            DestroyHandle(pHandle);
         }
-        g_static_rec_mutex_unlock(&g_libLock);
+        UnlockRecMutex(&g_libLock);
 
-        if (pHandle == NULL)
-        {
-            THROW_ERROR(ERCD_EPS_INVALID_HID);
-        }
+        THROW_ERROR(rc);
     }
     CATCH
     {
@@ -279,15 +274,12 @@ ResCodeT EpsRegisterSpi(uint32 hid, const EpsClientSpiT* pSpi)
             THROW_ERROR(ERCD_EPS_UNINITED, "library");
         }
 
-        g_static_rec_mutex_lock(&g_libLock);
-        EpsHandleT* pHandle = (EpsHandleT*)g_hash_table_lookup(g_handlePool, (gconstpointer)&hid);
-        g_static_rec_mutex_unlock(&g_libLock);
-
-        if (pHandle == NULL)
-        {
-            THROW_ERROR(ERCD_EPS_INVALID_HID);
-        }
-
+        EpsHandleT* pHandle = NULL;
+        LockRecMutex(&g_libLock);
+        ResCodeT rc = FindHandle(hid, &pHandle);
+        UnlockRecMutex(&g_libLock);
+        THROW_ERROR(rc);
+       
         if (pHandle->connMode == EPS_CONNMODE_UDP)
         {
             EpsUdpDriverT* pDriver = &pHandle->driver.udpDriver;
@@ -332,15 +324,12 @@ ResCodeT EpsConnect(uint32 hid, const char* address)
             THROW_ERROR(ERCD_EPS_UNINITED, "library");
         }
 
-        g_static_rec_mutex_lock(&g_libLock);
-        EpsHandleT* pHandle = (EpsHandleT*)g_hash_table_lookup(g_handlePool, (gconstpointer)&hid);
-        g_static_rec_mutex_unlock(&g_libLock);
+        EpsHandleT* pHandle = NULL;
+        LockRecMutex(&g_libLock);
+        ResCodeT rc = FindHandle(hid, &pHandle);
+        UnlockRecMutex(&g_libLock);
+        THROW_ERROR(rc);
         
-        if (pHandle == NULL)
-        {
-            THROW_ERROR(ERCD_EPS_INVALID_HID);
-        }
-
         if (pHandle->connMode == EPS_CONNMODE_UDP)
         {
             EpsUdpDriverT* pDriver = &pHandle->driver.udpDriver;
@@ -377,14 +366,11 @@ ResCodeT EpsDisconnect(uint32 hid)
             THROW_ERROR(ERCD_EPS_UNINITED, "library");
         }
 
-        g_static_rec_mutex_lock(&g_libLock);
-        EpsHandleT* pHandle = (EpsHandleT*)g_hash_table_lookup(g_handlePool, (gconstpointer)&hid);
-        g_static_rec_mutex_unlock(&g_libLock);
-
-        if (pHandle == NULL)
-        {
-            THROW_ERROR(ERCD_EPS_INVALID_HID);
-        }
+        EpsHandleT* pHandle = NULL;
+        LockRecMutex(&g_libLock);
+        ResCodeT rc = FindHandle(hid, &pHandle);
+        UnlockRecMutex(&g_libLock);
+        THROW_ERROR(rc);
 
         if (pHandle->connMode == EPS_CONNMODE_UDP)
         {
@@ -440,14 +426,11 @@ ResCodeT EpsLogin(uint32 hid, const char* username, const char* password, uint16
             THROW_ERROR(ERCD_EPS_UNINITED, "library");
         }
 
-        g_static_rec_mutex_lock(&g_libLock);
-        EpsHandleT* pHandle = (EpsHandleT*)g_hash_table_lookup(g_handlePool, (gconstpointer)&hid);
-        g_static_rec_mutex_unlock(&g_libLock);
-
-        if (pHandle == NULL)
-        {
-            THROW_ERROR(ERCD_EPS_INVALID_HID);
-        }
+        EpsHandleT* pHandle = NULL;
+        LockRecMutex(&g_libLock);
+        ResCodeT rc = FindHandle(hid, &pHandle);
+        UnlockRecMutex(&g_libLock);
+        THROW_ERROR(rc);
 
         if (pHandle->connMode == EPS_CONNMODE_UDP)
         {
@@ -490,14 +473,11 @@ ResCodeT EpsLogout(uint32 hid, const char* reason)
             THROW_ERROR(ERCD_EPS_UNINITED, "library");
         }
 
-        g_static_rec_mutex_lock(&g_libLock);
-        EpsHandleT* pHandle = (EpsHandleT*)g_hash_table_lookup(g_handlePool, (gconstpointer)&hid);
-        g_static_rec_mutex_unlock(&g_libLock);
-        
-        if (pHandle == NULL)
-        {
-            THROW_ERROR(ERCD_EPS_INVALID_HID);
-        }
+        EpsHandleT* pHandle = NULL;
+        LockRecMutex(&g_libLock);
+        ResCodeT rc = FindHandle(hid, &pHandle);
+        UnlockRecMutex(&g_libLock);
+        THROW_ERROR(rc);
 
         if (pHandle->connMode == EPS_CONNMODE_UDP)
         {
@@ -536,14 +516,11 @@ ResCodeT EpsSubscribeMarketData(uint32 hid, EpsMktTypeT mktType)
             THROW_ERROR(ERCD_EPS_UNINITED, "library");
         }
 
-        g_static_rec_mutex_lock(&g_libLock);
-        EpsHandleT* pHandle = (EpsHandleT*)g_hash_table_lookup(g_handlePool, (gconstpointer)&hid);
-        g_static_rec_mutex_unlock(&g_libLock);
-
-        if (pHandle == NULL)
-        {
-            THROW_ERROR(ERCD_EPS_INVALID_HID);
-        }
+        EpsHandleT* pHandle = NULL;
+        LockRecMutex(&g_libLock);
+        ResCodeT rc = FindHandle(hid, &pHandle);
+        UnlockRecMutex(&g_libLock);
+        THROW_ERROR(rc);
 
         if (pHandle->connMode == EPS_CONNMODE_UDP)
         {
@@ -582,7 +559,119 @@ const char* GetLastError()
  */
 static BOOL IsLibInited()
 {
-    return (g_atomic_int_get(&g_isLibInited) == TRUE);
+    return (g_isLibInited == TRUE);
+}
+
+/**
+ * 初始化句柄池
+ *
+ * @return  成功返回NO_ERR，否则返回错误码
+ */
+static ResCodeT InitHandlePool()
+{
+    TRY
+    {
+        memset(g_handlePool, 0x00, sizeof(g_handlePool));
+    }
+    CATCH
+    {
+    }
+    FINALLY
+    {
+        RETURN_RESCODE;
+    }
+}
+
+/**
+ * 反初始化句柄池
+ *
+ * @return  成功返回NO_ERR，否则返回错误码
+ */
+static ResCodeT UninitHandlePool()
+{
+    TRY
+    {
+        uint32 i = 0;
+        for (i = 0; i < EPS_HANDLE_MAX_COUNT; i++)
+        {
+            if (g_handlePool[i].hid != 0)
+            {
+                DisconnectHandle(&g_handlePool[i]);
+                DestroyHandle(&g_handlePool[i]);
+            }
+        }
+
+        memset(g_handlePool, 0x00, sizeof(g_handlePool));
+    }
+    CATCH
+    {
+    }
+    FINALLY
+    {
+        RETURN_RESCODE;
+    }
+}
+
+/**
+ * 获取新句柄
+ *
+ * @param   ppHandle             out  - 获取的的新句柄
+ *
+ * @return  成功返回NO_ERR，否则返回错误码
+ */
+static ResCodeT GetNewHandle(EpsHandleT** ppHandle)
+{
+    TRY
+    {
+        uint32 i = 0;
+        for (i = 0; i < EPS_HANDLE_MAX_COUNT; i++)
+        {
+            if (g_handlePool[i].hid == 0)
+            {
+                g_handlePool[i].hid = i + 1;
+                *ppHandle = &g_handlePool[i];
+                break;
+            }
+        }
+
+        if (i >= EPS_HANDLE_MAX_COUNT)
+        {
+            THROW_ERROR(ERCD_EPS_HID_COUNT_BEYOND_LIMIT, EPS_HANDLE_MAX_COUNT);
+        }
+    }
+    CATCH
+    {
+    }
+    FINALLY
+    {
+        RETURN_RESCODE;
+    }
+}
+
+
+static ResCodeT FindHandle(uint32 hid, EpsHandleT** ppHandle)
+{
+    TRY
+    {
+        if (hid == 0 || hid > EPS_HANDLE_MAX_COUNT)
+        {
+            THROW_ERROR(ERCD_EPS_INVALID_HID);
+        }
+
+        if (g_handlePool[hid - 1].hid == 0)
+        {
+            THROW_ERROR(ERCD_EPS_INVALID_HID);
+        }
+
+        *ppHandle = &g_handlePool[hid - 1];
+    }
+    CATCH
+    {
+    }
+    FINALLY
+    {
+        RETURN_RESCODE;
+    }
 }
 
 /**
@@ -622,20 +711,5 @@ static void DestroyHandle(EpsHandleT* pHandle)
         UninitTcpDriver(pDriver);
     }
 
-    free(pHandle);
+    memset(pHandle, 0x00, sizeof(EpsHandleT));
 }
-
-/**
- * 释放句柄(用于GHashTable自动调用)
- *
- * @param   data             in  - 待释放的句柄ID
- */
-static void _disposeHandle(gpointer data)
-{
-    EpsHandleT* pHandle = (EpsHandleT*)data;
-
-    DisconnectHandle(pHandle);
-    DestroyHandle(pHandle);
-}
-
-

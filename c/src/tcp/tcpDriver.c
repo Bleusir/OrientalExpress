@@ -58,12 +58,13 @@ static ResCodeT HandleLoginRsp(EpsTcpDriverT* pDriver, const StepMessageT* pMsg)
 static ResCodeT HandleLogoutRsp(EpsTcpDriverT* pDriver, const StepMessageT* pMsg);
 static ResCodeT HandleMDSubscribeRsp(EpsTcpDriverT* pDriver, const StepMessageT* pMsg);
 static ResCodeT HandleMarketData(EpsTcpDriverT* pDriver, const StepMessageT* pMsg);
+static ResCodeT HandleReceiveTimeout(EpsTcpDriverT* pDriver);
 
 static ResCodeT BuildLoginRequest(uint64 msgSeqNum, const char* username, const char* password, 
             uint16 heartbeatIntl, char* data, int32* pDataLen);
 static ResCodeT BuildLogoutRequest(uint64 msgSeqNum, const char* reason, char* data, int32* pDataLen);
 static ResCodeT BuildSubscribeRequest(uint64 msgSeqNum, EpsMktTypeT mktType, char* data, int32* pDataLen);
-//static ResCodeT BuildHeartbeatRequest(uint64 msgSeqNum, char* data, int32* pDataLen);
+static ResCodeT BuildHeartbeatRequest(uint64 msgSeqNum, char* data, int32* pDataLen);
     
 static ResCodeT ParseAddress(const char* address, char* srvAddr, uint16* srvPort);
 static ResCodeT GetSendingTime(char* szSendingTime);
@@ -113,7 +114,7 @@ ResCodeT InitTcpDriver(EpsTcpDriverT* pDriver)
         pDriver->msgSeqNum = 1;
         pDriver->recvBufferLen = 0;
 
-        g_static_rec_mutex_init(&pDriver->lock);
+        InitRecMutex(&pDriver->lock);
     }
     CATCH
     {
@@ -135,14 +136,14 @@ ResCodeT UninitTcpDriver(EpsTcpDriverT* pDriver)
 {
     TRY
     {
-        g_static_rec_mutex_lock(&pDriver->lock);
+        LockRecMutex(&pDriver->lock);
 
         UninitTcpChannel(&pDriver->channel);
         UninitMktDatabase(&pDriver->database);
 
-        g_static_rec_mutex_unlock(&pDriver->lock);
+        UnlockRecMutex(&pDriver->lock);
  
-        g_static_rec_mutex_free(&pDriver->lock);
+        UninitRecMutex(&pDriver->lock);
     }
     CATCH
     {
@@ -165,7 +166,7 @@ ResCodeT RegisterTcpDriverSpi(EpsTcpDriverT* pDriver, const EpsClientSpiT* pSpi)
 {
     TRY
     {
-        g_static_rec_mutex_lock(&pDriver->lock);
+        LockRecMutex(&pDriver->lock);
 
         if (pSpi->connectedNotify != NULL)
         {
@@ -191,9 +192,9 @@ ResCodeT RegisterTcpDriverSpi(EpsTcpDriverT* pDriver, const EpsClientSpiT* pSpi)
         {
             pDriver->spi.mktDataArrivedNotify = pSpi->mktDataArrivedNotify;
         }
-        if (pSpi->eventOccuredNotify != NULL)
+        if (pSpi->eventOccurredNotify != NULL)
         {
-            pDriver->spi.eventOccuredNotify = pSpi->eventOccuredNotify;
+            pDriver->spi.eventOccurredNotify = pSpi->eventOccurredNotify;
         }
     }
     CATCH
@@ -201,7 +202,7 @@ ResCodeT RegisterTcpDriverSpi(EpsTcpDriverT* pDriver, const EpsClientSpiT* pSpi)
     }
     FINALLY
     {
-        g_static_rec_mutex_unlock(&pDriver->lock);
+        UnlockRecMutex(&pDriver->lock);
  
         RETURN_RESCODE;
     }
@@ -217,19 +218,29 @@ ResCodeT RegisterTcpDriverSpi(EpsTcpDriverT* pDriver, const EpsClientSpiT* pSpi)
  */
 ResCodeT ConnectTcpDriver(EpsTcpDriverT* pDriver, const char* address)
 {
+    char        srvAddr[EPS_IP_MAX_LEN+1];
+    uint16      srvPort;
+
     TRY
     {
-        g_static_rec_mutex_lock(&pDriver->lock);
+        LockRecMutex(&pDriver->lock);
+        memcpy(srvAddr, pDriver->channel.srvAddr, sizeof(srvAddr));
+        srvPort = pDriver->channel.srvPort;
 
         THROW_ERROR(ParseAddress(address, pDriver->channel.srvAddr, &pDriver->channel.srvPort));
         THROW_ERROR(StartupTcpChannel(&pDriver->channel));
     }
     CATCH
     {
+        if(GET_RESCODE() == ERCD_EPS_DUPLICATE_CONNECT)
+        {
+            memcpy(pDriver->channel.srvAddr, srvAddr, sizeof(srvAddr));
+            pDriver->channel.srvPort = srvPort;
+        }
     }
     FINALLY
     {
-        g_static_rec_mutex_unlock(&pDriver->lock);
+        UnlockRecMutex(&pDriver->lock);
 
         RETURN_RESCODE;
     }
@@ -246,16 +257,23 @@ ResCodeT DisconnectTcpDriver(EpsTcpDriverT* pDriver)
 {
     TRY
     {
-        g_static_rec_mutex_lock(&pDriver->lock);
+        ResCodeT rc = NO_ERR;
+        
+        LockRecMutex(&pDriver->lock);
+        
+        rc = ShutdownTcpChannel(&pDriver->channel);
 
-        THROW_ERROR(ShutdownTcpChannel(&pDriver->channel));
+        UnlockRecMutex(&pDriver->lock);
+
+        THROW_ERROR(rc);
+        THROW_ERROR(JoinTcpChannel(&pDriver->channel));
     }
     CATCH
     {
     }
     FINALLY
     {
-        g_static_rec_mutex_unlock(&pDriver->lock);
+        UnlockRecMutex(&pDriver->lock);
 
         RETURN_RESCODE;
     }
@@ -273,14 +291,20 @@ ResCodeT LoginTcpDriver(EpsTcpDriverT* pDriver, const char* username,
 {
     TRY
     {
-        g_static_rec_mutex_lock(&pDriver->lock);
+        LockRecMutex(&pDriver->lock);
 
         EpsTcpStatusT status = pDriver->status;
         if (status != EPS_TCP_STATUS_CONNECTED)
         {
-            THROW_ERROR(ERCD_EPS_INVALID_OPERATION);    
+            char errorText[128];
+            snprintf(errorText, sizeof(errorText), 
+                "login operation disallowed in current status(%d)", status); 
+            THROW_ERROR(ERCD_EPS_INVALID_OPERATION, errorText);
         }
 
+        snprintf(pDriver->username, sizeof(pDriver->username), username);
+        snprintf(pDriver->password, sizeof(pDriver->password), username);
+        pDriver->heartbeatIntl = heartbeatIntl;
         char data[STEP_MSG_MAX_LEN];
         int32 dataLen = (int32)sizeof(data);
         THROW_ERROR(BuildLoginRequest(pDriver->msgSeqNum++, 
@@ -294,7 +318,7 @@ ResCodeT LoginTcpDriver(EpsTcpDriverT* pDriver, const char* username,
     }
     FINALLY
     {
-        g_static_rec_mutex_unlock(&pDriver->lock);
+        UnlockRecMutex(&pDriver->lock);
 
         RETURN_RESCODE;
     }
@@ -311,12 +335,15 @@ ResCodeT LogoutTcpDriver(EpsTcpDriverT* pDriver, const char* reason)
 {
     TRY
     {
-        g_static_rec_mutex_lock(&pDriver->lock);
+        LockRecMutex(&pDriver->lock);
 
         EpsTcpStatusT status = pDriver->status;
         if (status != EPS_TCP_STATUS_LOGINED && status != EPS_TCP_STATUS_PUBLISHING)
         {
-            THROW_ERROR(ERCD_EPS_INVALID_OPERATION);    
+            char errorText[128];
+            snprintf(errorText, sizeof(errorText), 
+                "logout operation disallowed in current status(%d)", status); 
+            THROW_ERROR(ERCD_EPS_INVALID_OPERATION, errorText);   
         }
 
         char data[STEP_MSG_MAX_LEN];
@@ -331,7 +358,7 @@ ResCodeT LogoutTcpDriver(EpsTcpDriverT* pDriver, const char* reason)
     }
     FINALLY
     {
-        g_static_rec_mutex_unlock(&pDriver->lock);
+        UnlockRecMutex(&pDriver->lock);
 
         RETURN_RESCODE;
     }
@@ -348,13 +375,15 @@ ResCodeT SubscribeTcpDriver(EpsTcpDriverT* pDriver, EpsMktTypeT mktType)
 {
     TRY
     {
-        g_static_rec_mutex_lock(&pDriver->lock);
+        LockRecMutex(&pDriver->lock);
         EpsTcpStatusT status = pDriver->status;
-        g_static_rec_mutex_unlock(&pDriver->lock);
 
         if (status != EPS_TCP_STATUS_LOGINED && status != EPS_TCP_STATUS_PUBLISHING)
         {
-            THROW_ERROR(ERCD_EPS_INVALID_OPERATION);    
+            char errorText[128];
+            snprintf(errorText, sizeof(errorText), 
+                "subscribe operation disallowed in current status(%d)", status); 
+            THROW_ERROR(ERCD_EPS_INVALID_OPERATION, errorText);
         }
 
         THROW_ERROR(SubscribeMktData(&pDriver->database, mktType));
@@ -370,6 +399,8 @@ ResCodeT SubscribeTcpDriver(EpsTcpDriverT* pDriver, EpsMktTypeT mktType)
     }
     FINALLY
     {
+        UnlockRecMutex(&pDriver->lock);
+
         RETURN_RESCODE;
     }
 }
@@ -383,13 +414,13 @@ static void OnChannelConnected(void* pListener)
 {
     EpsTcpDriverT* pDriver = (EpsTcpDriverT*)pListener;
 
-    g_static_rec_mutex_lock(&pDriver->lock);
+    LockRecMutex(&pDriver->lock);
 
     pDriver->status = EPS_TCP_STATUS_CONNECTED;
 
     pDriver->spi.connectedNotify(pDriver->hid);
 
-    g_static_rec_mutex_unlock(&pDriver->lock);
+    UnlockRecMutex(&pDriver->lock);
 }
 
 /**
@@ -403,15 +434,17 @@ static void OnChannelDisconnected(void* pListener, ResCodeT result, const char* 
 {
     EpsTcpDriverT* pDriver = (EpsTcpDriverT*)pListener;
 
-    g_static_rec_mutex_lock(&pDriver->lock);
+    LockRecMutex(&pDriver->lock);
     
     pDriver->status = EPS_TCP_STATUS_DISCONNECTED;
+    pDriver->msgSeqNum = 1;
+    pDriver->recvBufferLen = 0;
 
-    UnSubscribeAllMktData(&pDriver->database);
+    UnsubscribeAllMktData(&pDriver->database);
     
     pDriver->spi.disconnectedNotify(pDriver->hid, result, reason);
 
-    g_static_rec_mutex_unlock(&pDriver->lock);
+    UnlockRecMutex(&pDriver->lock);
 }
 
 /**
@@ -428,7 +461,7 @@ static void OnChannelReceived(void* pListener, ResCodeT result, const char* data
 
     TRY
     {
-        g_static_rec_mutex_lock(&pDriver->lock);
+        LockRecMutex(&pDriver->lock);
 
         if (OK(result))
         {
@@ -447,10 +480,10 @@ static void OnChannelReceived(void* pListener, ResCodeT result, const char* data
                 {
                     if (rc == ERCD_STEP_STREAM_NOT_ENOUGH)
                     {
+                        ErrClearError();
                         break;
                     }
 
-                    pDriver->spi.eventOccuredNotify(pDriver->hid, EPS_EVENTTYPE_WARNING, rc, ErrGetErrorDscr());
                     THROW_ERROR(rc);
                 }
 
@@ -459,16 +492,16 @@ static void OnChannelReceived(void* pListener, ResCodeT result, const char* data
                 switch (msg.msgType)
                 {
                     case STEP_MSGTYPE_LOGON:
-                        HandleLoginRsp(pDriver, &msg);
+                        THROW_ERROR(HandleLoginRsp(pDriver, &msg));
                         break;
                     case STEP_MSGTYPE_LOGOUT:
-                        HandleLogoutRsp(pDriver, &msg);
+                        THROW_ERROR(HandleLogoutRsp(pDriver, &msg));
                         break;
                     case STEP_MSGTYPE_MD_REQUEST:
-                        HandleMDSubscribeRsp(pDriver, &msg);
+                        THROW_ERROR(HandleMDSubscribeRsp(pDriver, &msg));
                         break;
                     case STEP_MSGTYPE_MD_SNAPSHOT:
-                        HandleMarketData(pDriver, &msg);
+                        THROW_ERROR(HandleMarketData(pDriver, &msg));
                         break;
                     case STEP_MSGTYPE_HEARTBEAT:
                     case STEP_MSGTYPE_TRADING_STATUS:
@@ -477,6 +510,8 @@ static void OnChannelReceived(void* pListener, ResCodeT result, const char* data
                         THROW_ERROR(ERCD_EPS_UNEXPECTED_MSGTYPE);
                         break;
                 }
+                pDriver->recvIdleTimes = 0;
+                pDriver->commIdleTimes = 0;
             }
 
             if (pDriver->recvBufferLen > pickupLen && pickupLen > 0)
@@ -488,16 +523,26 @@ static void OnChannelReceived(void* pListener, ResCodeT result, const char* data
         }
         else
         {
-            THROW_ERROR(result);
+            if (result == ERCD_EPS_SOCKET_TIMEOUT)
+            {
+                THROW_ERROR(HandleReceiveTimeout(pDriver));
+            }
+            else
+            {
+                THROW_ERROR(result);
+            }
         }
-
     }
     CATCH
     {
+        pDriver->spi.eventOccurredNotify(pDriver->hid, EPS_EVENTTYPE_ERROR, ErrGetErrorCode(), ErrGetErrorDscr());
+        CloseTcpChannel(&pDriver->channel);
+        OnChannelDisconnected(pListener, ErrGetErrorCode(), ErrGetErrorDscr());
+        ErrClearError();
     }
     FINALLY
     {
-        g_static_rec_mutex_unlock(&pDriver->lock);
+        UnlockRecMutex(&pDriver->lock);
     }
 }
 
@@ -525,11 +570,13 @@ static ResCodeT HandleLoginRsp(EpsTcpDriverT* pDriver, const StepMessageT* pMsg)
 {
     TRY
     {
-        g_static_rec_mutex_lock(&pDriver->lock);
+        LockRecMutex(&pDriver->lock);
 
         pDriver->status = EPS_TCP_STATUS_LOGINED;
 
         LogonRecordT* pRecord = (LogonRecordT*)pMsg->body;
+        pDriver->heartbeatIntl = pRecord->heartBtInt;
+        
         pDriver->spi.loginRspNotify(pDriver->hid, pRecord->heartBtInt,
             NO_ERR, "login succeed");
     }
@@ -538,7 +585,7 @@ static ResCodeT HandleLoginRsp(EpsTcpDriverT* pDriver, const StepMessageT* pMsg)
     }
     FINALLY
     {
-        g_static_rec_mutex_unlock(&pDriver->lock);
+        UnlockRecMutex(&pDriver->lock);
 
         RETURN_RESCODE;
     }
@@ -556,11 +603,11 @@ static ResCodeT HandleLogoutRsp(EpsTcpDriverT* pDriver, const StepMessageT* pMsg
 {
     TRY
     {
-        g_static_rec_mutex_lock(&pDriver->lock);
+        LockRecMutex(&pDriver->lock);
 
         pDriver->status = EPS_TCP_STATUS_LOGOUT;
 
-        UnSubscribeAllMktData(&pDriver->database);
+        UnsubscribeAllMktData(&pDriver->database);
         
         LogoutRecordT* pRecord = (LogoutRecordT*)pMsg->body;
 
@@ -589,7 +636,7 @@ static ResCodeT HandleLogoutRsp(EpsTcpDriverT* pDriver, const StepMessageT* pMsg
     }
     FINALLY
     {
-        g_static_rec_mutex_unlock(&pDriver->lock);
+        UnlockRecMutex(&pDriver->lock);
 
         RETURN_RESCODE;
     }
@@ -607,7 +654,7 @@ static ResCodeT HandleMDSubscribeRsp(EpsTcpDriverT* pDriver, const StepMessageT*
 {
     TRY
     {
-        g_static_rec_mutex_lock(&pDriver->lock);
+        LockRecMutex(&pDriver->lock);
 
         MDRequestRecordT* pRecord = (MDRequestRecordT*)pMsg->body;
      
@@ -622,7 +669,7 @@ static ResCodeT HandleMDSubscribeRsp(EpsTcpDriverT* pDriver, const StepMessageT*
     }
     FINALLY
     {
-        g_static_rec_mutex_unlock(&pDriver->lock);
+        UnlockRecMutex(&pDriver->lock);
 
         RETURN_RESCODE;
     }
@@ -640,14 +687,20 @@ static ResCodeT HandleMarketData(EpsTcpDriverT* pDriver, const StepMessageT* pMs
 {
     TRY
     {
-        g_static_rec_mutex_lock(&pDriver->lock);
+        LockRecMutex(&pDriver->lock);
 
         ResCodeT rc = AcceptMktData(&pDriver->database, pMsg);
         if (NOTOK(rc))
         {
             if (rc == ERCD_EPS_DATASOURCE_CHANGED)
             {
-                pDriver->spi.eventOccuredNotify(pDriver->hid, EPS_EVENTTYPE_WARNING, rc, ErrGetErrorDscr());
+                pDriver->spi.eventOccurredNotify(pDriver->hid, EPS_EVENTTYPE_WARNING, rc, ErrGetErrorDscr());
+                ErrClearError();
+            }
+            else if (rc == ERCD_EPS_MKTTYPE_UNSUBSCRIBED)
+            {
+                ErrClearError();
+                THROW_RESCODE(NO_ERR);
             }
             else
             {
@@ -656,11 +709,7 @@ static ResCodeT HandleMarketData(EpsTcpDriverT* pDriver, const StepMessageT* pMs
         }
 
         EpsMktDataT mktData;
-        rc = ConvertMktData(pMsg, &mktData);
-        if (NOTOK(rc))
-        {
-            pDriver->spi.eventOccuredNotify(pDriver->hid, EPS_EVENTTYPE_WARNING, rc, ErrGetErrorDscr());
-        }
+        THROW_ERROR(ConvertMktData(pMsg, &mktData));
 
         pDriver->spi.mktDataArrivedNotify(pDriver->hid, &mktData);
     }
@@ -669,11 +718,64 @@ static ResCodeT HandleMarketData(EpsTcpDriverT* pDriver, const StepMessageT* pMs
     }
     FINALLY
     {
-        g_static_rec_mutex_unlock(&pDriver->lock);
+        UnlockRecMutex(&pDriver->lock);
 
         RETURN_RESCODE;
     }
 }
+
+/**
+ * 处理数据接收超时
+ *
+ * @param   pDriver             in  - TCP驱动器
+ *
+ * @return  成功返回NO_ERR，否则返回错误码
+ */
+static ResCodeT HandleReceiveTimeout(EpsTcpDriverT* pDriver)
+{
+    TRY
+    {
+        if (pDriver->status != EPS_TCP_STATUS_LOGINED && 
+            pDriver->status != EPS_TCP_STATUS_PUBLISHING)
+        {
+            THROW_RESCODE(NO_ERR);
+        }
+        
+        pDriver->recvIdleTimes++;
+        pDriver->commIdleTimes++;
+        
+        if ((pDriver->commIdleTimes * EPS_SOCKET_RECV_TIMEOUT) >= (pDriver->heartbeatIntl * 1000))
+        {
+            char data[STEP_MSG_MAX_LEN];
+            int32 dataLen = (int32)sizeof(data);
+            THROW_ERROR(BuildHeartbeatRequest(pDriver->msgSeqNum++, data, &dataLen));
+
+            THROW_ERROR(SendTcpChannel(&pDriver->channel, data, dataLen));
+
+            pDriver->commIdleTimes = 0;
+        }
+
+        if ((pDriver->recvIdleTimes * EPS_SOCKET_RECV_TIMEOUT) >= EPS_DRIVER_KEEPALIVE_TIME)
+        {
+            ErrSetError(ERCD_EPS_CHECK_KEEPALIVE_TIMEOUT);
+                    
+            pDriver->spi.eventOccurredNotify(pDriver->hid, EPS_EVENTTYPE_WARNING, 
+                GET_RESCODE(), ErrGetErrorDscr());
+
+            pDriver->recvIdleTimes = 0;
+
+            ErrClearError();
+         }
+    }
+    CATCH
+    {
+    }
+    FINALLY
+    {
+        RETURN_RESCODE;
+    }
+}
+
 
 /**
  * 创建登陆请求消息
@@ -808,7 +910,6 @@ static ResCodeT BuildSubscribeRequest(uint64 msgSeqNum, EpsMktTypeT mktType, cha
  *
  * @return  成功返回NO_ERR，否则返回错误码
  */
-/*
 static ResCodeT BuildHeartbeatRequest(uint64 msgSeqNum, char* data, int32* pDataLen)
 {
     TRY
@@ -833,7 +934,6 @@ static ResCodeT BuildHeartbeatRequest(uint64 msgSeqNum, char* data, int32* pData
         RETURN_RESCODE;
     }
 }
-*/
 
 /**
  * 获取行情发送时间

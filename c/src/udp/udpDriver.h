@@ -32,6 +32,7 @@ DD-MMM-YYYY INIT.    SIR    Modification Description
  */
 
 #include "cmn/errlib.h"
+#include "cmn/recMutex.h"
 #include "cmn/mktDatabase.h"
 #include "eps/epsTypes.h"
 #include "eps/epsData.h"
@@ -58,11 +59,12 @@ typedef struct EpsUdpDriverTag
     EpsUdpChannelT  channel;                /* 网络通道 */
     EpsMktDatabaseT database;               /* 行情数据库 */
     EpsClientSpiT   spi;                    /* 用户回调接口 */
-    GStaticRecMutex lock;                   /* 驱动器锁 */
+    EpsRecMutexT    lock;                   /* 驱动器锁 */
 
     char   username[EPS_USERNAME_MAX_LEN+1]; /* 用户账号 */
     char   password[EPS_PASSWORD_MAX_LEN+1]; /* 用户密码 */
     uint16 heartbeatIntl;                    /* 心跳周期 */
+    uint16 recvIdleTimes;                    /* 接收空闲计数 */  
 } EpsUdpDriverT;
 
 

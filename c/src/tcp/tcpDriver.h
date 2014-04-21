@@ -32,6 +32,7 @@ DD-MMM-YYYY INIT.    SIR    Modification Description
  */
 
 #include "cmn/errlib.h"
+#include "cmn/recMutex.h"
 #include "cmn/mktDatabase.h"
 #include "eps/epsTypes.h"
 #include "eps/epsData.h"
@@ -77,11 +78,13 @@ typedef struct EpsTcpDriverTag
     uint64          msgSeqNum;              /* 消息序号 */
     char            recvBuffer[STEP_MSG_MAX_LEN*2];/* 接收缓冲区 */
     uint32          recvBufferLen;          /* 接收缓冲区长度 */
-    GStaticRecMutex lock;                   /* 驱动器锁 */
+    EpsRecMutexT    lock;                   /* 驱动器锁 */
     
     char   username[EPS_USERNAME_MAX_LEN+1]; /* 用户账号 */
     char   password[EPS_PASSWORD_MAX_LEN+1]; /* 用户密码 */
     uint16 heartbeatIntl;                    /* 心跳周期 */
+    uint16 recvIdleTimes;                    /* 接收空闲计数 */  
+    uint16 commIdleTimes;                    /* 通讯空闲计数 */
 } EpsTcpDriverT;
 
 

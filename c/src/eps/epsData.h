@@ -138,7 +138,7 @@ typedef struct EpsClientSpiTag
     EpsLogoutRspCallback        logoutRspNotify;     /* 登出应答通知 */
     EpsMktDataSubRspCallback    mktDataSubRspNotify; /* 行情订阅应答通知 */
     EpsMktDataArrivedCallback   mktDataArrivedNotify;/* 行情数据到达通知 */
-    EpsEventOccurredCallback    eventOccuredNotify;  /* 事件发生通知 */
+    EpsEventOccurredCallback    eventOccurredNotify;  /* 事件发生通知 */
 } EpsClientSpiT;
 
 #ifdef __cplusplus

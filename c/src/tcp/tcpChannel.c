@@ -48,6 +48,7 @@ DD-MMM-YYYY INIT.    SIR    Modification Description
  */
 
 #define EPS_SENDDATA_MAX_LEN                    8192
+#define EPS_SENDQUEUE_SIZE                      128
 
 
 /** 
@@ -70,8 +71,6 @@ typedef struct EpsSendDataTag
 
 static void* ChannelTask(void* arg);
 
-static ResCodeT OpenChannel(EpsTcpChannelT* pChannel);
-static ResCodeT CloseChannel(EpsTcpChannelT* pChannel);
 static ResCodeT SendData(EpsTcpChannelT* pChannel);
 static ResCodeT ReceiveData(EpsTcpChannelT* pChannel);
 static ResCodeT ClearSendQueue(EpsTcpChannelT* pChannel);
@@ -108,9 +107,10 @@ ResCodeT InitTcpChannel(EpsTcpChannelT* pChannel)
 
         pChannel->socket = -1;
         pChannel->tid = 0;
-        pChannel->pSendQueue = g_async_queue_new();
-        pChannel->canStop = FALSE;
-
+        pChannel->canStop = TRUE;
+        pChannel->status  = EPS_TCPCHANNEL_STATUS_STOP;
+        InitUniQueue(&pChannel->sendQueue, EPS_SENDQUEUE_SIZE);
+    
         EpsTcpChannelListenerT listener = 
         {
             NULL,
@@ -146,20 +146,15 @@ ResCodeT UninitTcpChannel(EpsTcpChannelT* pChannel)
             THROW_RESCODE(NO_ERR);
         } 
 
-        if (pChannel->pSendQueue != NULL)
-        {
-            ClearSendQueue(pChannel);
-
-            g_async_queue_unref(pChannel->pSendQueue);
-            pChannel->pSendQueue = NULL;
-        }
-
         if (pChannel->socket != -1)
         {
             shutdown(pChannel->socket, SHUT_RDWR);
             close(pChannel->socket);
             pChannel->socket = -1;
         }
+
+        ClearSendQueue(pChannel);
+        UninitUniQueue(&pChannel->sendQueue);
     }
     CATCH
     {
@@ -183,10 +178,19 @@ ResCodeT StartupTcpChannel(EpsTcpChannelT* pChannel)
     {
         if (IsChannelStarted(pChannel))
         {
-            THROW_ERROR(ERCD_EPS_DUPLICATE_CONNECT);
+            if (pChannel->status == EPS_TCPCHANNEL_STATUS_IDLE)
+            {
+                pChannel->status = EPS_TCPCHANNEL_STATUS_WORK;
+                THROW_RESCODE(NO_ERR);
+            }
+            else
+            {
+                THROW_ERROR(ERCD_EPS_DUPLICATE_CONNECT);
+            }
         }
        
         pChannel->canStop = FALSE;
+        pChannel->status = EPS_TCPCHANNEL_STATUS_WORK;
         
         pthread_t tid;
         int result = pthread_create(&tid, NULL, ChannelTask, (void*)pChannel);
@@ -221,13 +225,50 @@ ResCodeT ShutdownTcpChannel(EpsTcpChannelT* pChannel)
             THROW_RESCODE(NO_ERR);
         }
 
-        pChannel->canStop = TRUE;
-        int result = pthread_join(pChannel->tid, NULL);
-        if (result != 0)
+        if (pChannel->tid != pthread_self())
         {
-            THROW_ERROR(ERCD_EPS_OPERSYSTEM_ERROR, strerror(result));
+            pChannel->canStop = TRUE;
         }
-        pChannel->tid = 0;
+        else
+        {
+            if (pChannel->status == EPS_TCPCHANNEL_STATUS_WORK)
+            {
+                CloseTcpChannel(pChannel);
+            }
+
+            pChannel->status = EPS_TCPCHANNEL_STATUS_IDLE;
+        }
+    }
+    CATCH
+    {
+    }
+    FINALLY
+    {
+        RETURN_RESCODE;
+    }
+}
+
+/**
+ * 等待TCP通道结束
+ *
+ * @param   pChannel            in  - TCP通道对象
+ *
+ * @return  成功返回NO_ERR，否则返回错误码
+ */
+ ResCodeT JoinTcpChannel(EpsTcpChannelT* pChannel)
+{
+    TRY
+    {
+        if (pChannel->tid != 0 && pChannel->tid != pthread_self())
+        {
+            int result = pthread_join(pChannel->tid, NULL);
+            if (result != 0)
+            {
+                THROW_ERROR(ERCD_EPS_OPERSYSTEM_ERROR, strerror(result));
+            }            
+
+            pChannel->tid = 0;
+        }
     }
     CATCH
     {
@@ -268,8 +309,8 @@ ResCodeT SendTcpChannel(EpsTcpChannelT* pChannel, const char* data, uint32 dataL
         }
         memcpy(pData->data, data, dataLen);
         pData->dataLen = dataLen;
-        
-        g_async_queue_push(pChannel->pSendQueue, (gpointer)pData);
+
+        THROW_ERROR(PushUniQueue(&pChannel->sendQueue, (void*)pData));
     }
     CATCH
     {
@@ -336,15 +377,23 @@ static void* ChannelTask(void* arg)
 
     while (! pChannel->canStop)
     {
+        if (pChannel->status == EPS_TCPCHANNEL_STATUS_IDLE)
+        {
+            usleep(EPS_CHANNEL_IDLE_INTL * 1000);
+            continue;
+        }
+        
         /* 打开TCP通道 */
         if (! IsChannelConnected(pChannel))
         {
-            if (NOTOK(OpenChannel(pChannel)))
+            if (NOTOK(OpenTcpChannel(pChannel)))
             {
                 pChannel->listener.disconnectedNotify(pChannel->listener.pListener,
                     ErrGetErrorCode(), ErrGetErrorDscr());
-                    
-                usleep(EPS_SOCKET_RECONNECT_INTERVAL * 1000);
+
+                ErrClearError();
+
+                usleep(EPS_CHANNEL_RECONNECT_INTL * 1000);
                 continue;
             }
             else
@@ -354,13 +403,23 @@ static void* ChannelTask(void* arg)
         }
         
         /* 优先处理数据发送 */
-        SendData(pChannel);
+        if (NOTOK(SendData(pChannel)))
+        {
+            ErrClearError();
+            continue;
+        }
 
         /* 处理网络接收数据 */
-        ReceiveData(pChannel);
+        if (NOTOK(ReceiveData(pChannel)))
+        {
+            ErrClearError();
+            continue;
+        }
     }
     
-    CloseChannel(pChannel);
+    CloseTcpChannel(pChannel);
+
+    pChannel->status = EPS_TCPCHANNEL_STATUS_STOP;
 
     return 0;
 }
@@ -372,7 +431,7 @@ static void* ChannelTask(void* arg)
  *
  * @return  成功返回NO_ERR，否则返回错误码
  */
-static ResCodeT OpenChannel(EpsTcpChannelT* pChannel)
+ResCodeT OpenTcpChannel(EpsTcpChannelT* pChannel)
 {
     int fd = -1;
     TRY
@@ -382,16 +441,14 @@ static ResCodeT OpenChannel(EpsTcpChannelT* pChannel)
         fd = socket(AF_INET, SOCK_STREAM, 0);
         if (fd == -1)
         {
-            ErrSetError(ERCD_EPS_SOCKET_ERROR, strerror(errno));
-            THROW_RESCODE(ERCD_EPS_SOCKET_ERROR);
+            THROW_ERROR(ERCD_EPS_SOCKET_ERROR, strerror(errno));
         }
    
         BOOL reuseaddr = TRUE;
         result = setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (const char*)&reuseaddr, sizeof(reuseaddr));
         if (result == -1)
         {
-            ErrSetError(ERCD_EPS_SOCKET_ERROR, strerror(errno));
-            THROW_RESCODE(ERCD_EPS_SOCKET_ERROR);
+            THROW_ERROR(ERCD_EPS_SOCKET_ERROR, strerror(errno));
         }
 
         struct sockaddr_in srvAddr;
@@ -405,8 +462,7 @@ static ResCodeT OpenChannel(EpsTcpChannelT* pChannel)
                     sizeof(struct sockaddr));
         if (result == -1)
         {  
-            ErrSetError(ERCD_EPS_SOCKET_ERROR, strerror(errno));
-            THROW_RESCODE(ERCD_EPS_SOCKET_ERROR);
+            THROW_ERROR(ERCD_EPS_SOCKET_ERROR, strerror(errno));
         }
             
         pChannel->socket = fd;
@@ -435,7 +491,7 @@ static ResCodeT OpenChannel(EpsTcpChannelT* pChannel)
  *
  * @return  成功返回NO_ERR，否则返回错误码
  */
-static ResCodeT CloseChannel(EpsTcpChannelT* pChannel)
+ResCodeT CloseTcpChannel(EpsTcpChannelT* pChannel)
 {
     TRY
     {
@@ -476,8 +532,8 @@ static ResCodeT SendData(EpsTcpChannelT* pChannel)
         
         while (TRUE)
         {
-            pData = (EpsSendDataT*)g_async_queue_try_pop_unlocked(pChannel->pSendQueue);
-
+            THROW_ERROR(PopUniQueue(&pChannel->sendQueue, (void**)(&pData)));
+    
             if (pData == NULL)
             {
                 break;
@@ -490,8 +546,7 @@ static ResCodeT SendData(EpsTcpChannelT* pChannel)
                 if (result <= 0)
                 {
                     free(pData);
-                    ErrSetError(ERCD_EPS_SOCKET_ERROR, strerror(errno));
-                    THROW_RESCODE(ERCD_EPS_SOCKET_ERROR);
+                    THROW_ERROR(ERCD_EPS_SOCKET_ERROR, strerror(errno));
                 }
 
                 sendLen += result;
@@ -501,9 +556,14 @@ static ResCodeT SendData(EpsTcpChannelT* pChannel)
     }
     CATCH
     {
-        CloseChannel(pChannel);
-        pChannel->listener.disconnectedNotify(pChannel->listener.pListener,
-            ErrGetErrorCode(), ErrGetErrorDscr());
+        CloseTcpChannel(pChannel);
+        
+        if (pChannel->status == EPS_TCPCHANNEL_STATUS_WORK)
+        {
+            pChannel->listener.disconnectedNotify(pChannel->listener.pListener,
+                ErrGetErrorCode(), ErrGetErrorDscr());
+        }
+        ErrClearError();
     }
     FINALLY
     {
@@ -533,8 +593,7 @@ static ResCodeT ReceiveData(EpsTcpChannelT* pChannel)
         int result = select(pChannel->socket+1, &fdset, 0, 0, &timeout);
         if (result == -1)
         {
-            ErrSetError(ERCD_EPS_SOCKET_ERROR, strerror(errno));
-            THROW_RESCODE(ERCD_EPS_SOCKET_ERROR);
+            THROW_ERROR(ERCD_EPS_SOCKET_ERROR, strerror(errno));
         }
         
         if (FD_ISSET(pChannel->socket, &fdset))
@@ -547,21 +606,29 @@ static ResCodeT ReceiveData(EpsTcpChannelT* pChannel)
             }
             else if(len == 0)
             {
-                ErrSetError(ERCD_EPS_SOCKET_ERROR, "Connection closed by remote");
-                THROW_RESCODE(ERCD_EPS_SOCKET_ERROR);
+                THROW_ERROR(ERCD_EPS_SOCKET_ERROR, "Connection closed by remote");
             }
             else
             {
-                ErrSetError(ERCD_EPS_SOCKET_ERROR, strerror(errno));
-                THROW_RESCODE(ERCD_EPS_SOCKET_ERROR);
+                THROW_ERROR(ERCD_EPS_SOCKET_ERROR, strerror(errno));
             }
+        }
+        else
+        {
+            pChannel->listener.receivedNotify(pChannel->listener.pListener, 
+                    ERCD_EPS_SOCKET_TIMEOUT, pChannel->recvBuffer, (uint32)0);
         }
     }
     CATCH
     {
-        CloseChannel(pChannel);
-        pChannel->listener.disconnectedNotify(pChannel->listener.pListener,
-                    ErrGetErrorCode(), ErrGetErrorDscr());
+        CloseTcpChannel(pChannel);
+        
+        if (pChannel->status == EPS_TCPCHANNEL_STATUS_WORK)
+        {
+            pChannel->listener.disconnectedNotify(pChannel->listener.pListener,
+                ErrGetErrorCode(), ErrGetErrorDscr());
+        }
+        ErrClearError();
     }
     FINALLY
     {
@@ -583,7 +650,8 @@ static ResCodeT ClearSendQueue(EpsTcpChannelT* pChannel)
         EpsSendDataT* pData = NULL;
         while (TRUE)
         {
-            pData = (EpsSendDataT*)g_async_queue_try_pop_unlocked(pChannel->pSendQueue);
+            THROW_ERROR(PopUniQueue(&pChannel->sendQueue, (void**)(&pData)));
+            
             if (pData != NULL)
             {
                 free(pData);
@@ -612,7 +680,7 @@ static ResCodeT ClearSendQueue(EpsTcpChannelT* pChannel)
  */
 static BOOL IsChannelInited(EpsTcpChannelT* pChannel)
 {
-    return (pChannel->pSendQueue != NULL);
+    return (IsUniQueueInited(&pChannel->sendQueue));
 }
 
 /**

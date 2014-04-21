@@ -31,11 +31,11 @@ DD-MMM-YYYY INIT.    SIR    Modification Description
  * 包含头文件
  */
 
-#include <glib.h>
 #include <sys/socket.h>
 #include <pthread.h>
 
 #include "cmn/common.h"
+#include "cmn/uniQueue.h"
 #include "eps/epsTypes.h"
 
 
@@ -47,6 +47,16 @@ extern "C" {
 /**
  * 类型定义
  */
+
+/*
+ * TCP通道状态枚举
+ */
+typedef enum EpsTcpChannelStatusTag
+{
+    EPS_TCPCHANNEL_STATUS_STOP     = 0,    /* 停止状态 */
+    EPS_TCPCHANNEL_STATUS_IDLE     = 1,    /* 空闲状态 */
+    EPS_TCPCHANNEL_STATUS_WORK     = 2,    /* 工作状态 */
+} EpsTcpChannelStatusT;
 
 /*
  * 异步回调接口
@@ -79,9 +89,10 @@ typedef struct EpsTcpChannelTag
 
     int         socket;                     /* 通讯套接字 */
     pthread_t   tid;                        /* 线程id */
-    GAsyncQueue* pSendQueue;                /* 发送队列 */
+    EpsUniQueueT sendQueue;                 /* 发送队列 */
     char        recvBuffer[EPS_SOCKET_RECVBUFFER_LEN];/* 接收缓冲区 */
     BOOL        canStop;                    /* 允许停止线程运行标记 */
+    EpsTcpChannelStatusT status;            /* 通道状态 */
 
     EpsTcpChannelListenerT listener;        /* 监听者接口 */
 } EpsTcpChannelT;
@@ -110,6 +121,21 @@ ResCodeT StartupTcpChannel(EpsTcpChannelT* pChannel);
  * 停止TCP通道
  */
 ResCodeT ShutdownTcpChannel(EpsTcpChannelT* pChannel);
+
+/*
+ * 打开TCP通道
+ */
+ResCodeT OpenTcpChannel(EpsTcpChannelT* pChannel);
+
+/*
+ * 关闭TCP通道
+ */
+ResCodeT CloseTcpChannel(EpsTcpChannelT* pChannel);
+
+/*
+ * 等待TCP通道结束
+ */
+ResCodeT JoinTcpChannel(EpsTcpChannelT* pChannel);
 
 /*
  * 向TCP通道发送数据

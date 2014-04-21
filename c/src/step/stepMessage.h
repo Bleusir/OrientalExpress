@@ -119,8 +119,8 @@ extern "C" {
 #define STEP_MSG_ENCODING_VALUE                     "GBK"
 
 #define STEP_SECURITY_TYPE_ALL_VALUE                "00"
-#define STEP_SECURITY_TYPE_MTP_VALUE                "01"
-#define STEP_SECURITY_TYPE_DTP_VALUE                "02"
+#define STEP_SECURITY_TYPE_STK_VALUE                "01"
+#define STEP_SECURITY_TYPE_DEV_VALUE                "02"
 
 #define STEP_INVALID_STRING_VALUE                   ""
 #define STEP_INVALID_INT_VALUE                      -1

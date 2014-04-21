@@ -62,6 +62,8 @@ static ErrorInfoT  g_errorTable[] =
     {ERCD_EPS_INVALID_OPERATION, "invalid operation, %s"},
     {ERCD_EPS_LOGIN_FAILED, "login failed"},
     {ERCD_EPS_SUBMARKETDATA_FAILED, "subscribe market data failed"},
+    {ERCD_EPS_CHECK_KEEPALIVE_TIMEOUT, "check keepalive timeout"},
+    {ERCD_EPS_HID_COUNT_BEYOND_LIMIT, "handle count beycound limit(%d)"},
     
     {ERCD_STEP_INVALID_FLDVALUE, "Invalid field value(%d=%.*s), %s"},
     {ERCD_STEP_BUFFER_OVERFLOW, "Step message buffer overflow"},

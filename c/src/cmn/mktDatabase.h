@@ -78,7 +78,7 @@ ResCodeT SubscribeMktData(EpsMktDatabaseT* pDatabase, EpsMktTypeT mktType);
 /**
  * 取消所有行情数据订阅
  */
-ResCodeT UnSubscribeAllMktData(EpsMktDatabaseT* pDatabase);
+ResCodeT UnsubscribeAllMktData(EpsMktDatabaseT* pDatabase);
 
 /*
  * 判断是否接受该条行情数据

@@ -31,11 +31,11 @@ DD-MMM-YYYY INIT.    SIR    Modification Description
  * 包含头文件
  */
 
-#include <glib.h>
 #include <sys/socket.h>
 #include <pthread.h>
 
 #include "cmn/common.h"
+#include "cmn/uniQueue.h"
 #include "eps/epsTypes.h"
 
 
@@ -49,12 +49,22 @@ extern "C" {
  */
 
 /*
+ * UDP通道状态枚举
+ */
+typedef enum EpsUdpChannelStatusTag
+{
+    EPS_UDPCHANNEL_STATUS_STOP     = 0, /* 停止状态 */
+    EPS_UDPCHANNEL_STATUS_IDLE     = 1, /* 空闲状态 */
+    EPS_UDPCHANNEL_STATUS_WORK     = 2, /* 工作状态 */
+} EpsUdpChannelStatusT;
+
+/*
  * 异步事件
  */
 typedef struct EpsUdpChannelEventTag
 {
-    uint32  eventType;      /* 事件类型 */
-    uint32  eventParam;     /* 事件参数 */     
+    uint32  eventType;                  /* 事件类型 */
+    uint32  eventParam;                 /* 事件参数 */     
 } EpsUdpChannelEventT;
 
 /*
@@ -89,9 +99,10 @@ typedef struct EpsUdpChannelTag
 
     int         socket;                     /* 通讯套接字 */
     pthread_t   tid;                        /* 线程id */
-    GAsyncQueue* pEventQueue;               /* 事件队列 */
+    EpsUniQueueT eventQueue;                /* 事件队列 */
     char        recvBuffer[EPS_SOCKET_RECVBUFFER_LEN];/* 接收缓冲区 */
-    BOOL        canStop;                    /* 允许停止线程运行标记 */  
+    BOOL        canStop;                    /* 允许停止线程运行标记 */ 
+    EpsUdpChannelStatusT status;            /* 通道状态 */
 
     EpsUdpChannelListenerT listener;        /* 监听者接口 */
 } EpsUdpChannelT;
@@ -120,6 +131,21 @@ ResCodeT StartupUdpChannel(EpsUdpChannelT* pChannel);
  * 停止UDP通道
  */
 ResCodeT ShutdownUdpChannel(EpsUdpChannelT* pChannel);
+
+/*
+ * 打开UDP通道
+ */
+ResCodeT OpenUdpChannel(EpsUdpChannelT* pChannel);
+
+/*
+ * 关闭UDP通道
+ */
+ResCodeT CloseUdpChannel(EpsUdpChannelT* pChannel);
+
+/*
+ * 等待UDP通道结束
+ */
+ResCodeT JoinUdpChannel(EpsUdpChannelT* pChannel);
 
 /*
  * 触发异步事件

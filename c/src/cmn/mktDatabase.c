@@ -147,7 +147,7 @@ ResCodeT SubscribeMktData(EpsMktDatabaseT* pDatabase, EpsMktTypeT mktType)
  *
  * @return  成功返回NO_ERR，否则返回错误码
  */
-ResCodeT UnSubscribeAllMktData(EpsMktDatabaseT* pDatabase)
+ResCodeT UnsubscribeAllMktData(EpsMktDatabaseT* pDatabase)
 {
     TRY
     {
