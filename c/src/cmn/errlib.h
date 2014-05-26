@@ -32,20 +32,42 @@
  * 包含头文件
  */
 
-#include "eps/epsTypes.h"
-#include "cmn/errcode.h"
+#include "errcode.h"
+#include "epsTypes.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-
 /**
  * 错误库接口定义
  */
 
+/* 
+ * 错误码数据类型定义 
+ */
+#ifndef ResCodeT
+#define ResCodeT    int32
+#endif
+
+
+/* 
+ * 错误信息结构体 
+ */
+
+#define EPS_ERRDESC_MAX_LEN         256         /* 错误描述最大长度 */
+
+typedef struct ErrorInfoTag
+{
+    ResCodeT    errCode;                        /* 错误码 */
+    char        errDscr[EPS_ERRDESC_MAX_LEN+1]; /* 错误描述 */
+} ErrorInfoT;
+
 /* 全局错误码申明 */
 extern __thread ResCodeT __errCode;
+
+/* 执行成功返回码 */
+#define NO_ERR                                  1
 
 /* 正常处理流程块 */
 #define TRY                                     \
@@ -105,6 +127,13 @@ do                                              \
     }                                           \
 } while (0)
 
+/**
+ * 加载错误信息表
+ * @param   pTable               in  - 错误信息表
+ * @param   tableSize            in  - 错误信息表长度
+ */
+void ErrLoadErrorTable(const ErrorInfoT* pTable, uint32 tableSize);
+        
 /**
  * 设置错误信息
  *

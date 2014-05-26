@@ -32,7 +32,7 @@
  * 包含头文件
  */
 
-#include "eps/epsTypes.h"
+#include "epsTypes.h"
 
 
 #ifdef __cplusplus

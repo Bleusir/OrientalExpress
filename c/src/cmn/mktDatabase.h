@@ -36,9 +36,11 @@ extern "C" {
  * 包含头文件
  */
 
-#include "cmn/errlib.h"
-#include "eps/epsData.h"
-#include "step/stepMessage.h"
+#include "common.h"
+#include "epsTypes.h"
+#include "errlib.h"
+#include "epsData.h"
+#include "stepMessage.h"
 
 
 /**

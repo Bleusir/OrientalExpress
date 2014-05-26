@@ -31,13 +31,7 @@ DD-MMM-YYYY INIT.    SIR    Modification Description
  * 包含头文件
  */
 
-#include <sys/socket.h>
-#include <pthread.h>
-
-#include "cmn/common.h"
-#include "cmn/uniQueue.h"
-#include "eps/epsTypes.h"
-
+#include "uniQueue.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -87,8 +81,17 @@ typedef struct EpsTcpChannelTag
     char        srvAddr[EPS_IP_MAX_LEN+1];  /* 服务器地址 */
     uint16      srvPort;                    /* 服务器端口 */
 
-    int         socket;                     /* 通讯套接字 */
+    SOCKET      socket;						/* 通讯套接字 */
+
+#if defined(__WINDOWS__)
+    HANDLE      thread;						/* 线程对象 */
+    DWORD		tid;						/* 线程id */
+#endif
+
+#if defined(__LINUX__) || defined(__HPUX__) 
     pthread_t   tid;                        /* 线程id */
+#endif
+
     EpsUniQueueT sendQueue;                 /* 发送队列 */
     char        recvBuffer[EPS_SOCKET_RECVBUFFER_LEN];/* 接收缓冲区 */
     BOOL        canStop;                    /* 允许停止线程运行标记 */

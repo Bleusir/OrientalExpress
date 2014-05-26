@@ -27,12 +27,13 @@ DD-MMM-YYYY INIT.    SIR    Modification Description
 /**
  * 包含头文件
  */
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <errno.h>
 
-#include "step/stepCodec.h"
+#include "common.h"
+#include "epsTypes.h"
+#include "epsData.h"
+#include "errlib.h"
+#include "stepCodec.h"
+
 #include "udpDriver.h"
 
 

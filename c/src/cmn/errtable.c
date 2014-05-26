@@ -28,10 +28,12 @@ DD-MMM-YYYY INIT.    SIR    Modification Description
  * 包含头文件
  */
 
-#include "eps/epsTypes.h"
-#include "cmn/errcode.h"
-#include "errtable.h"
+#include "common.h"
+#include "epsTypes.h"
+#include "errlib.h"
+#include "errcode.h"
 
+#include "errtable.h"
 
 /**
  * 全局定义
@@ -40,7 +42,7 @@ DD-MMM-YYYY INIT.    SIR    Modification Description
 /* 
  * 错误码表 
  */
-static ErrorInfoT  g_errorTable[] =
+const ErrorInfoT  g_errorTable[] =
 {
     {ERCD_EPS_OPERSYSTEM_ERROR, "operation system error, %s"},
     {ERCD_EPS_SOCKET_ERROR, "socket error, %s"},
@@ -78,41 +80,19 @@ static ErrorInfoT  g_errorTable[] =
 };
 
 /**
- * 接口函数实现
+ * 加载错误码表
  */
- 
-/**
- * 查找指定错误码对应的错误信息描述
- *
- * @param   errCode               in  - 错误码
- *
- * @return  找到则返回对应错误信息描述，否则返回NULL
- */
-ErrorInfoT* ErrLookupError(ResCodeT errCode)
+ResCodeT EpsLoadErrorTable()
 {
-    int32 begin, end, middle;
-    ErrorInfoT* pInfo = NULL;
-
-    begin = 0;
-    end = sizeof(g_errorTable)/sizeof(g_errorTable[0]) - 1;
-    while (begin <= end)
+    TRY
     {
-        middle = (begin + end) / 2;
-        if ((g_errorTable[middle].errCode) == errCode)
-        {
-            pInfo = &g_errorTable[middle];
-            break;
-        }
-
-        if((g_errorTable[middle].errCode) < errCode)
-        {
-            begin = middle + 1;
-        }
-        else
-        {
-            end = middle - 1;
-        }
+        ErrLoadErrorTable(g_errorTable, sizeof(g_errorTable)/sizeof(g_errorTable[0]));
     }
-    
-    return pInfo;
+    CATCH
+    {
+    }
+    FINALLY
+    {
+        RETURN_RESCODE;
+    }
 }

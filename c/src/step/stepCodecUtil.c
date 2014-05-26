@@ -29,12 +29,9 @@
  * 包含头文件
  */
 
-#include <string.h>
-#include <stdio.h>
-#include <stdlib.h>
-
-#include "cmn/errlib.h"
-#include "eps/epsTypes.h"
+#include "common.h"
+#include "errlib.h"
+#include "epsTypes.h"
 
 #include "stepCodecUtil.h"
 
@@ -185,7 +182,13 @@ ResCodeT AddInt64Field(int32 tag, int64 value, char* buf, int32 bufSize,
     {
         char* bufBegin    = buf + *pOffset;
         int32 bufLeftSize = bufSize - *pOffset;
+#if defined (__LINUX__) || defined (__HPUX__)
         int len = snprintf(bufBegin, bufLeftSize, "%d=%lld%c", tag, value, STEP_DELIMITER);
+#endif
+
+#if defined (__WINDOWS__)
+        int len = snprintf(bufBegin, bufLeftSize, "%d=%I64d%c", tag, value, STEP_DELIMITER);
+#endif
         if (bufLeftSize < len + 1)
         {
             THROW_ERROR(ERCD_STEP_BUFFER_OVERFLOW);
@@ -329,7 +332,13 @@ ResCodeT AddUint64Field(int32 tag, uint64 value, char* buf, int32 bufSize,
     {
         char* bufBegin    = buf + *pOffset;
         int32 bufLeftSize = bufSize - *pOffset;
+#if defined (__LINUX__) || defined (__HPUX__)
         int len = snprintf(bufBegin, bufLeftSize, "%d=%llu%c", tag, value, STEP_DELIMITER);
+#endif
+
+#if defined (__WINDOWS__)
+        int len = snprintf(bufBegin, bufLeftSize, "%d=%I64u%c", tag, value, STEP_DELIMITER);
+#endif
         if (bufLeftSize < len + 1)
         {
             THROW_ERROR(ERCD_STEP_BUFFER_OVERFLOW);

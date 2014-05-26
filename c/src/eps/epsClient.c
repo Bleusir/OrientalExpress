@@ -28,15 +28,14 @@ DD-MMM-YYYY INIT.    SIR    Modification Description
  * 包含头文件
  */
 
-#include <stdlib.h>
-#include <string.h>
-#include <errno.h>
-
-#include "cmn/errlib.h"
-#include "cmn/atomic.h"
-#include "cmn/recMutex.h"
-#include "udp/udpDriver.h"
-#include "tcp/tcpDriver.h"
+#include "common.h"
+#include "epsTypes.h"
+#include "errlib.h"
+#include "errtable.h"
+#include "atomic.h"
+#include "recMutex.h"
+#include "udpDriver.h"
+#include "tcpDriver.h"
 
 #include "epsClient.h"
 
@@ -101,12 +100,14 @@ static void DestroyHandle(EpsHandleT* pHandle);
  *
  * @return  成功返回NO_ERR，否则返回错误码
  */
-ResCodeT EpsInitLib()
+int32 EpsInitLib()
 {
     TRY
     {
         if (EpsAtomicIntCompareAndExchange(&g_isLibInited, FALSE, TRUE))
         {
+            EpsLoadErrorTable();
+            
             InitHandlePool();
             InitRecMutex(&g_libLock);
         }
@@ -129,7 +130,7 @@ ResCodeT EpsInitLib()
  *
  * @return  成功返回NO_ERR，否则返回错误码
  */
-ResCodeT EpsUninitLib()
+int32 EpsUninitLib()
 {
     TRY
     {
@@ -159,7 +160,7 @@ ResCodeT EpsUninitLib()
  *
  * @return  成功返回NO_ERR，否则返回错误码
  */
-ResCodeT EpsCreateHandle(uint32* pHid, EpsConnModeT mode)
+int32 EpsCreateHandle(uint32* pHid, EpsConnModeT mode)
 {
     EpsHandleT* pHandle = NULL;
     
@@ -222,7 +223,7 @@ ResCodeT EpsCreateHandle(uint32* pHid, EpsConnModeT mode)
  *
  * @return  成功返回NO_ERR，否则返回错误码
  */
-ResCodeT EpsDestroyHandle(uint32 hid)
+int32 EpsDestroyHandle(uint32 hid)
 {
     TRY
     {
@@ -260,7 +261,7 @@ ResCodeT EpsDestroyHandle(uint32 hid)
  *
  * @return  成功返回NO_ERR，否则返回错误码
  */
-ResCodeT EpsRegisterSpi(uint32 hid, const EpsClientSpiT* pSpi)
+int32 EpsRegisterSpi(uint32 hid, const EpsClientSpiT* pSpi)
 {
     TRY
     {
@@ -310,7 +311,7 @@ ResCodeT EpsRegisterSpi(uint32 hid, const EpsClientSpiT* pSpi)
  *
  * @return  成功返回NO_ERR，否则返回错误码
  */
-ResCodeT EpsConnect(uint32 hid, const char* address)
+int32 EpsConnect(uint32 hid, const char* address)
 {
     TRY
     {
@@ -357,7 +358,7 @@ ResCodeT EpsConnect(uint32 hid, const char* address)
  *
  * @return  成功返回NO_ERR，否则返回错误码
  */
-ResCodeT EpsDisconnect(uint32 hid)
+int32 EpsDisconnect(uint32 hid)
 {
     TRY
     {
@@ -402,7 +403,7 @@ ResCodeT EpsDisconnect(uint32 hid)
  *
  * @return  成功返回NO_ERR，否则返回错误码
  */
-ResCodeT EpsLogin(uint32 hid, const char* username, const char* password, uint16 heartbeatIntl)
+int32 EpsLogin(uint32 hid, const char* username, const char* password, uint16 heartbeatIntl)
 {
     TRY
     {
@@ -459,7 +460,7 @@ ResCodeT EpsLogin(uint32 hid, const char* username, const char* password, uint16
  *
  * @return  成功返回NO_ERR，否则返回错误码
  */
-ResCodeT EpsLogout(uint32 hid, const char* reason)
+int32 EpsLogout(uint32 hid, const char* reason)
 {
     TRY
     {
@@ -507,7 +508,7 @@ ResCodeT EpsLogout(uint32 hid, const char* reason)
  *
  * @return  成功返回NO_ERR，否则返回错误码
  */
-ResCodeT EpsSubscribeMarketData(uint32 hid, EpsMktTypeT mktType)
+int32 EpsSubscribeMarketData(uint32 hid, EpsMktTypeT mktType)
 {
     TRY
     {
@@ -547,7 +548,7 @@ ResCodeT EpsSubscribeMarketData(uint32 hid, EpsMktTypeT mktType)
  *
  * @return  返回错误信息地址
  */
-const char* GetLastError()
+const char* EpsGetLastError()
 {
     return ErrGetErrorDscr();
 }
@@ -615,7 +616,7 @@ static ResCodeT UninitHandlePool()
 /**
  * 获取新句柄
  *
- * @param   ppHandle             out  - 获取的的新句柄
+ * @param   ppHandle             out  - 获取的新句柄
  *
  * @return  成功返回NO_ERR，否则返回错误码
  */
@@ -648,7 +649,14 @@ static ResCodeT GetNewHandle(EpsHandleT** ppHandle)
     }
 }
 
-
+/**
+ * 查询句柄
+ *
+ * @param   hid                  in   - 待查询的句柄ID
+ * @param   ppHandle             out  - 查询到的句柄
+ *
+ * @return  成功返回NO_ERR，否则返回错误码
+ */
 static ResCodeT FindHandle(uint32 hid, EpsHandleT** ppHandle)
 {
     TRY

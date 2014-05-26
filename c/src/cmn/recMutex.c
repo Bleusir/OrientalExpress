@@ -28,7 +28,6 @@ DD-MMM-YYYY INIT.    SIR    Modification Description
  * 包含头文件
  */
 
-#include "common.h"
 #include "recMutex.h"
 
 
@@ -48,11 +47,17 @@ void InitRecMutex(EpsRecMutexT* pMutex)
         return;
     }
 
+#if defined(__WINDOWS__)  
+	pMutex->mutex = CreateMutex(NULL, FALSE, NULL);
+#endif  
+  
+#if defined(__LINUX__) || defined(__HPUX__) 
     pthread_mutexattr_t attr;
     pthread_mutexattr_init(&attr);
     pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
 
     pthread_mutex_init(&pMutex->mutex, &attr);
+#endif  
 }
 
 /**
@@ -67,7 +72,13 @@ void UninitRecMutex(EpsRecMutexT* pMutex)
         return;
     }
 
+#if defined(__WINDOWS__)  
+	CloseHandle(pMutex->mutex);
+#endif  
+  
+#if defined(__LINUX__) || defined(__HPUX__) 
     pthread_mutex_destroy(&pMutex->mutex);
+#endif  
 }
 
 /**
@@ -82,7 +93,13 @@ void LockRecMutex(EpsRecMutexT* pMutex)
         return;
     }
 
+#if defined(__WINDOWS__)  
+	WaitForSingleObject(pMutex->mutex, INFINITE);
+#endif  
+  
+#if defined(__LINUX__) || defined(__HPUX__) 
     pthread_mutex_lock(&pMutex->mutex);
+#endif 
 }
 
 /**
@@ -97,5 +114,11 @@ void UnlockRecMutex(EpsRecMutexT* pMutex)
         return;
     }
 
+#if defined(__WINDOWS__)  
+	ReleaseMutex(pMutex->mutex);
+#endif  
+  
+#if defined(__LINUX__) || defined(__HPUX__) 
     pthread_mutex_unlock(&pMutex->mutex);
+#endif 
 }

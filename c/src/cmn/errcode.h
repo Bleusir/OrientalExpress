@@ -35,9 +35,6 @@ extern "C" {
  * 错误码定义
  */
 
-/* 执行成功返回码 */
-#define NO_ERR                                  1
-
 /* Express接口库错误码 */
 #define ERCD_EPS_OPERSYSTEM_ERROR               0x20010001
 #define ERCD_EPS_SOCKET_ERROR                   0x20010002
@@ -76,6 +73,7 @@ extern "C" {
 #define ERCD_STEP_UNEXPECTED_TAG                0x2002000a
 
 /* FAST错误码 */
+
 
 
 #ifdef __cplusplus

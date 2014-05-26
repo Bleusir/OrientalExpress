@@ -32,8 +32,10 @@ DD-MMM-YYYY INIT.    SIR    Modification Description
 #include <stdlib.h>
 #include <string.h>
 
-#include "cmn/errlib.h"
-#include "eps/epsClient.h"
+#include "common.h"
+#include "errlib.h"
+
+#include "epsClient.h"
 
 
 /**
@@ -59,7 +61,13 @@ static void OnEpsDisconnectedTest(uint32 hid, ResCodeT result, const char* reaso
 
 static void OnEpsMktDataArrivedTest(uint32 hid, const EpsMktDataT* pMktData)
 {
+#if defined (__LINUX__) || defined (__HPUX__)
     printf("==> OnMktDataArrived(), hid: %d, applID: %d, applSeqNum: %lld\n", hid, pMktData->applID, pMktData->applSeqNum);
+#endif
+
+#if defined (__WINDOWS__)
+    printf("==> OnMktDataArrived(), hid: %d, applID: %d, applSeqNum: %I64d\n", hid, pMktData->applID, pMktData->applSeqNum);
+#endif
 }
 
 static void OnEpsEventOccurredTest(uint32 hid, EpsEventTypeT eventType, ResCodeT eventCode, const char* eventText)
@@ -84,6 +92,11 @@ int main(int argc, char *argv[])
             exit(0);
         }
 
+#if defined(__WINDOWS__)
+        WSADATA wsda;
+        WSAStartup( MAKEWORD(2, 2), &wsda);
+#endif
+
         printf("\n>>> epsClientTest starting ... \n");
 
         printf("==> call EpsInitLib() ... ");
@@ -94,7 +107,7 @@ int main(int argc, char *argv[])
         }
         else
         {
-            printf("failed, Error: %s!!!\n", GetLastError());
+            printf("failed, Error: %s!!!\n", EpsGetLastError());
             THROW_RESCODE(rc);
         }
 
@@ -107,7 +120,7 @@ int main(int argc, char *argv[])
         }
         else
         {
-            printf("failed, Error: %s!!!\n", GetLastError());
+            printf("failed, Error: %s!!!\n", EpsGetLastError());
             THROW_RESCODE(rc);
         }
 
@@ -130,7 +143,7 @@ int main(int argc, char *argv[])
         }
         else
         {
-            printf("failed, Error: %s!!!\n", GetLastError());
+            printf("failed, Error: %s!!!\n", EpsGetLastError());
             THROW_RESCODE(rc);
         }
 
@@ -142,7 +155,7 @@ int main(int argc, char *argv[])
         }
         else
         {
-            printf("failed, Error: %s!!!\n", GetLastError());
+            printf("failed, Error: %s!!!\n", EpsGetLastError());
             THROW_RESCODE(rc);
         }
 
@@ -154,7 +167,7 @@ int main(int argc, char *argv[])
         }
         else
         {
-            printf("failed, Error: %s!!!\n", GetLastError());
+            printf("failed, Error: %s!!!\n", EpsGetLastError());
             THROW_RESCODE(rc);
         }
 
@@ -176,7 +189,7 @@ int main(int argc, char *argv[])
         }
         else
         {
-            printf("failed, Error: %s!!!\n", GetLastError());
+            printf("failed, Error: %s!!!\n", EpsGetLastError());
             THROW_RESCODE(rc);
         }
 
@@ -188,7 +201,7 @@ int main(int argc, char *argv[])
         }
         else
         {
-            printf("failed, Error: %s!!!\n", GetLastError());
+            printf("failed, Error: %s!!!\n", EpsGetLastError());
             THROW_RESCODE(rc);
         }
 
@@ -200,7 +213,7 @@ int main(int argc, char *argv[])
         }
         else
         {
-            printf("failed, Error: %s!!!\n", GetLastError());
+            printf("failed, Error: %s!!!\n", EpsGetLastError());
             THROW_RESCODE(rc);
         }
     }

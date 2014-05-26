@@ -31,14 +31,9 @@ DD-MMM-YYYY INIT.    SIR    Modification Description
  * 包含头文件
  */
 
-#include "cmn/errlib.h"
-#include "cmn/recMutex.h"
-#include "cmn/mktDatabase.h"
-#include "eps/epsTypes.h"
-#include "eps/epsData.h"
-
+#include "recMutex.h"
+#include "mktDatabase.h"
 #include "udpChannel.h"
-
 
 #ifdef __cplusplus
 extern "C" {

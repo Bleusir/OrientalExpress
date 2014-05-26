@@ -28,10 +28,11 @@ DD-MMM-YYYY INIT.    SIR    Modification Description
  * 包含头文件
  */
 
-#include <errno.h>
-#include <string.h>
-
+#include "common.h"
+#include "epsTypes.h"
 #include "errlib.h"
+#include "errcode.h"
+
 #include "uniQueue.h"
 
 
@@ -69,7 +70,8 @@ ResCodeT InitUniQueue(EpsUniQueueT* pQueue, uint32 size)
         pQueue->container = calloc(size, sizeof(void*));
         if (pQueue->container == NULL)
         {
-            THROW_ERROR(ERCD_EPS_OPERSYSTEM_ERROR, strerror(errno));
+            int lstErrno = SYS_ERRNO;
+            THROW_ERROR(ERCD_EPS_OPERSYSTEM_ERROR, EpsGetSystemError(lstErrno));
         }
         pQueue->size = size;
         pQueue->header = 0;

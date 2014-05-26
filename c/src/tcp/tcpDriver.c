@@ -27,15 +27,12 @@ DD-MMM-YYYY INIT.    SIR    Modification Description
 /**
  * 包含头文件
  */
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <errno.h>
-#include <sys/time.h>
+#include "common.h"
+#include "epsTypes.h"
+#include "errlib.h"
+#include "stepCodec.h"
 
-#include "step/stepCodec.h"
 #include "tcpDriver.h"
-
 
 /**
  * 内部函数申明
@@ -457,6 +454,7 @@ static void OnChannelDisconnected(void* pListener, ResCodeT result, const char* 
  */
 static void OnChannelReceived(void* pListener, ResCodeT result, const char* data, uint32 dataLen)
 {
+
     EpsTcpDriverT* pDriver = (EpsTcpDriverT*)pListener;
 
     TRY
@@ -543,6 +541,7 @@ static void OnChannelReceived(void* pListener, ResCodeT result, const char* data
     FINALLY
     {
         UnlockRecMutex(&pDriver->lock);
+        SET_RESCODE(GET_RESCODE());
     }
 }
 
@@ -946,13 +945,23 @@ static ResCodeT GetSendingTime(char* szSendingTime)
 {
     TRY
     {
-        struct timeval tv_time;
+#if defined(__WINDOWS__)
+        time_t tt = time(NULL);
+    	struct tm* pNowTime = localtime(&tt);
+        sprintf(szSendingTime, "%02d%02d%02d%02ld",
+             pNowTime->tm_hour, pNowTime->tm_min, pNowTime->tm_sec, (long)0);
+#endif
+
+#if defined(__LINUX__) || defined(__HPUX__) 
         struct tm nowTime;
+    	struct timeval tv_time;
         
         gettimeofday(&tv_time, NULL);
         localtime_r((time_t *)&(tv_time.tv_sec), &nowTime);
+
         sprintf(szSendingTime, "%02d%02d%02d%02ld",
-            nowTime.tm_hour, nowTime.tm_min, nowTime.tm_sec, tv_time.tv_usec / 10000);
+            nowTime.tm_hour, nowTime.tm_min, nowTime.tm_sec, (long)0);
+#endif
     }
     CATCH
     {

@@ -29,14 +29,12 @@
  * 包含头文件
  */
 
-#include <string.h>
-#include <stdio.h>
-
-#include "cmn/errlib.h"
-#include "eps/epsTypes.h"
+#include "common.h"
+#include "errlib.h"
+#include "epsTypes.h"
+#include "stepCodecUtil.h"
 
 #include "stepCodec.h"
-#include "stepCodecUtil.h"
 
 /*
  * 全局定义

@@ -120,12 +120,12 @@ typedef struct EpsMktDataTag
  * 用户回调接口函数类型
  */
 typedef void (*EpsConnectedCallback)(uint32 hid);
-typedef void (*EpsDisconnectedCallback)(uint32 hid, ResCodeT result, const char* reason);
-typedef void (*EpsLoginRspCallback)(uint32 hid, uint16 heartbeatIntl, ResCodeT result, const char* reason);
-typedef void (*EpsLogoutRspCallback)(uint32 hid, ResCodeT result, const char* reason);
-typedef void (*EpsMktDataSubRspCallback)(uint32 hid, EpsMktTypeT mktType, ResCodeT result, const char* reason);
+typedef void (*EpsDisconnectedCallback)(uint32 hid, int32 result, const char* reason);
+typedef void (*EpsLoginRspCallback)(uint32 hid, uint16 heartbeatIntl, int32 result, const char* reason);
+typedef void (*EpsLogoutRspCallback)(uint32 hid, int32 result, const char* reason);
+typedef void (*EpsMktDataSubRspCallback)(uint32 hid, EpsMktTypeT mktType, int32 result, const char* reason);
 typedef void (*EpsMktDataArrivedCallback)(uint32 hid, const EpsMktDataT* pMktData);
-typedef void (*EpsEventOccurredCallback)(uint32 hid, EpsEventTypeT eventType, ResCodeT eventCode, const char* eventText);
+typedef void (*EpsEventOccurredCallback)(uint32 hid, EpsEventTypeT eventType, int32 eventCode, const char* eventText);
 
 /*
  * 用户回调接口

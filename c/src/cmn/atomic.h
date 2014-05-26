@@ -37,7 +37,6 @@ extern "C" {
  */
 
 #include "common.h"
-#include "eps/epsTypes.h"
 
 
 /**

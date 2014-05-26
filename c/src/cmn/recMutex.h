@@ -36,7 +36,7 @@ extern "C" {
  * 包含头文件
  */
 
-#include <pthread.h>
+#include "common.h"
 
 
 /**
@@ -48,7 +48,13 @@ extern "C" {
  */
 typedef struct EpsRecMutexTag
 {
+#if defined(__WINDOWS__)  
+	HANDLE				mutex;
+#endif  
+  
+#if defined(__LINUX__) || defined(__HPUX__) 
     pthread_mutex_t     mutex;
+#endif  
 } EpsRecMutexT;
 
 

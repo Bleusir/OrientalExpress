@@ -33,32 +33,13 @@ extern "C" {
 #endif
 
 /**
- * 宏定义 
- */
-
-#define EPS_ERRDESC_MAX_LEN         256
-
-/**
- * 类型定义
- */
- 
-/* 
- * 错误信息结构体 
- */
-typedef struct ErrorInfoTag
-{
-    ResCodeT    errCode;                        /* 错误码 */
-    char        errDscr[EPS_ERRDESC_MAX_LEN+1]; /* 错误描述 */
-} ErrorInfoT;
-
-/**
  * 接口函数定义
  */
- 
+
 /*
- * 查找指定错误码的错误信息
+ * 加载错误码表
  */
-ErrorInfoT* ErrLookupError(ResCodeT errCode);
+ResCodeT EpsLoadErrorTable();
 
 #ifdef __cplusplus
 }

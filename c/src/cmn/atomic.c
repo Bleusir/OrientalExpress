@@ -48,7 +48,7 @@ DD-MMM-YYYY INIT.    SIR    Modification Description
 BOOL EpsAtomicIntCompareAndExchange (volatile int *atomic, int oldVal, int newVal)
 {  
     int result;   
-    
+
     __asm__ __volatile__ ("lock; cmpxchgl %2, %1"
         : "=a" (result), "=m" (*atomic)         
         : "r" (newVal), "m" (*atomic), "0" (oldVal));   

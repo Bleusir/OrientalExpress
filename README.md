@@ -9,6 +9,27 @@ Oriental Express项目是由上海证券交易所技术人员主导的一个开源项目，提供接入所内各
 同时欢迎感兴趣的技术开发人员加入我们的团队，或提供技术支持。
 需要使用本项目代码进行商业项目开发的单位或个人，需要接受上海证券交易所的授权。
 
+【编译方法】
+-----------------------------------------------------------------------------------------------------------------------------------------------------
+1、根据编译机器的操作系统确定OS_TYPE=[Windows/Linux/Unix]，默认Linux；
+2、make premake的使用，首次编译或者makeclean之后需要先做预处理；
+3、选择编译类型 BUILD_TYPE=[Debug/Release]，默认Debug；
+4、示例
+   Windows下编译Debug版本
+   make OS_TYPE=Windows premake [首次编译或者完成清理]
+   make OS_TYPE=Windows BUILD_TYPE=Debug
+   make OS_TYPE=Windows clean [清理时才会调用]
+
+   Linux下编译Debug版本
+   make OS_TYPE=Linux premake [首次编译或者完成清理]
+   make OS_TYPE=Linux BUILD_TYPE=Debug
+   make OS_TYPE=Linux clean [清理时才会调用]
+
+   Unix下编译Debug版本
+   make OS_TYPE=Unix premake [首次编译或者完成清理]
+   make OS_TYPE=Unix BUILD_TYPE=Debug
+   make OS_TYPE=Unix clean [清理时才会调用]
+
 【接口使用说明】
 -----------------------------------------------------------------------------------------------------------------------------------------------------
 具体使用方法请参见接口头文件注释 src/eps/epsClient.h

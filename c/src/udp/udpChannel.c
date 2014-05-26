@@ -28,18 +28,11 @@ DD-MMM-YYYY INIT.    SIR    Modification Description
  * 包含头文件
  */
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <sys/socket.h>
-#include <fcntl.h>
-#include <arpa/inet.h>
-#include <pthread.h>
-#include <string.h>
-#include <errno.h>
 
-#include "eps/epsTypes.h"
-#include "cmn/errlib.h"
+#include "common.h"
+#include "epsTypes.h"
+#include "errlib.h"
+
 #include "udpChannel.h"
 
 /**
@@ -89,7 +82,7 @@ ResCodeT InitUdpChannel(EpsUdpChannelT* pChannel)
             THROW_ERROR(ERCD_EPS_DUPLICATE_INITED, "channel");
         }
 
-        pChannel->socket = -1;
+        pChannel->socket = INVALID_SOCKET;
         pChannel->tid = 0;
         pChannel->canStop = TRUE;
         pChannel->status  = EPS_UDPCHANNEL_STATUS_STOP;
@@ -130,14 +123,7 @@ ResCodeT UninitUdpChannel(EpsUdpChannelT* pChannel)
             THROW_RESCODE(NO_ERR);
         } 
 
-        if (pChannel->socket != -1)
-        {
-            shutdown(pChannel->socket, SHUT_RDWR);
-            close(pChannel->socket);
-            pChannel->socket = -1;
-        }
-
-        ClearEventQueue(pChannel);
+        CloseUdpChannel(pChannel);
         UninitUniQueue(&pChannel->eventQueue);
     }
     CATCH
@@ -176,15 +162,30 @@ ResCodeT StartupUdpChannel(EpsUdpChannelT* pChannel)
         pChannel->canStop = FALSE;
         pChannel->status = EPS_UDPCHANNEL_STATUS_WORK;
         
+#if defined(__WINDOWS__)
+        DWORD tid = 0;
+        HANDLE thread = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)ChannelTask, 
+            (LPVOID)pChannel, 0, (LPDWORD)&tid);
+        if (tid == 0)
+        {
+        	pChannel->status = EPS_UDPCHANNEL_STATUS_STOP;
+            int lstErrno = SYS_ERRNO;
+        	THROW_ERROR(ERCD_EPS_OPERSYSTEM_ERROR, EpsGetSystemError(lstErrno));
+        }
+        pChannel->thread = thread;
+        pChannel->tid = tid;
+#endif
+
+#if defined(__LINUX__) || defined(__HPUX__) 
         pthread_t tid;
         int result = pthread_create(&tid, NULL, ChannelTask, (void*)pChannel);
         if (result != 0)
         {
-            pChannel->status = EPS_UDPCHANNEL_STATUS_STOP;
-            
-            THROW_ERROR(ERCD_EPS_OPERSYSTEM_ERROR, strerror(result));
+        	pChannel->status = EPS_UDPCHANNEL_STATUS_STOP;
+            THROW_ERROR(ERCD_EPS_OPERSYSTEM_ERROR, EpsGetSystemError(SYS_ERRNO));
         }
         pChannel->tid = tid;
+#endif
     }
     CATCH
     {
@@ -211,9 +212,15 @@ ResCodeT ShutdownUdpChannel(EpsUdpChannelT* pChannel)
             THROW_RESCODE(NO_ERR);
         }
 
+#if defined(__WINDOWS__)
+        if (pChannel->tid != GetCurrentThreadId())
+#endif
+
+#if defined(__LINUX__) || defined(__HPUX__) 
         if (pChannel->tid != pthread_self())
+#endif
         {
-            pChannel->canStop = TRUE;
+             pChannel->canStop = TRUE;
         }
         else
         {
@@ -245,16 +252,33 @@ ResCodeT ShutdownUdpChannel(EpsUdpChannelT* pChannel)
 {
     TRY
     {
+#if defined(__WINDOWS__)
+        if (pChannel->tid != 0 && pChannel->tid != GetCurrentThreadId())
+        {
+        	int result = WaitForSingleObject(pChannel->thread, INFINITE);
+        	if (result != WAIT_OBJECT_0)
+        	{
+        	    int lstErrno = SYS_ERRNO;
+        		THROW_ERROR(ERCD_EPS_OPERSYSTEM_ERROR, EpsGetSystemError(lstErrno));
+        	}
+
+        	pChannel->thread = NULL;
+        	pChannel->tid = 0;
+        }
+#endif
+
+#if defined(__LINUX__) || defined(__HPUX__) 
         if (pChannel->tid != 0 && pChannel->tid != pthread_self())
         {
             int result = pthread_join(pChannel->tid, NULL);
             if (result != 0)
             {
-                THROW_ERROR(ERCD_EPS_OPERSYSTEM_ERROR, strerror(result));
+                THROW_ERROR(ERCD_EPS_OPERSYSTEM_ERROR, EpsGetSystemError(SYS_ERRNO));
             }            
 
             pChannel->tid = 0;
         }
+#endif
     }
     CATCH
     {
@@ -285,7 +309,8 @@ ResCodeT TriggerUdpChannelEvent(EpsUdpChannelT* pChannel, const EpsUdpChannelEve
         EpsUdpChannelEventT* pEvent = (EpsUdpChannelEventT*)calloc(1, sizeof(EpsUdpChannelEventT));
         if (pEvent == NULL)
         {
-            THROW_ERROR(ERCD_EPS_OPERSYSTEM_ERROR, strerror(errno));
+            int lstErrno = SYS_ERRNO;
+            THROW_ERROR(ERCD_EPS_OPERSYSTEM_ERROR, EpsGetSystemError(lstErrno));
         }
         *pEvent = event;
 
@@ -369,11 +394,18 @@ static void* ChannelTask(void* arg)
             if (NOTOK(OpenUdpChannel(pChannel)))
             {
                 pChannel->listener.disconnectedNotify(pChannel->listener.pListener,
-                    ErrGetErrorCode(), ErrGetErrorDscr());
+                    ErrGetErrorCode(), ErrGetErrorDscr());
 
                 ErrClearError();
-          
+
+#if defined(__WINDOWS__)
+                Sleep(EPS_CHANNEL_RECONNECT_INTL);
+#endif
+
+#if defined(__LINUX__) || defined(__HPUX__) 
                 usleep(EPS_CHANNEL_RECONNECT_INTL * 1000);
+#endif
+
                 continue;
             }
             else
@@ -415,49 +447,65 @@ static void* ChannelTask(void* arg)
  */
 ResCodeT OpenUdpChannel(EpsUdpChannelT* pChannel)
 {
-    int fd = -1;
+    SOCKET fd = INVALID_SOCKET;
+
     TRY
     {
-        int result = -1;
-      
+        int result = SOCKET_ERROR;
+        
         fd = socket(AF_INET, SOCK_DGRAM, 0);
-        if (fd == -1)
+        if (fd == INVALID_SOCKET)
         {
-            THROW_ERROR(ERCD_EPS_SOCKET_ERROR, strerror(errno));
+            int lstErrno = NET_ERRNO;
+            THROW_ERROR(ERCD_EPS_SOCKET_ERROR, EpsGetSystemError(lstErrno));
         }
-   
+
         BOOL reuseaddr = TRUE;
         result = setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (const char*)&reuseaddr, sizeof(reuseaddr));
-        if (result == -1)
+        if (result == SOCKET_ERROR)
         {
-            THROW_ERROR(ERCD_EPS_SOCKET_ERROR, strerror(errno));
+            int lstErrno = NET_ERRNO;
+            THROW_ERROR(ERCD_EPS_SOCKET_ERROR, EpsGetSystemError(lstErrno));
         }
 
         struct sockaddr_in mcAddr;
         memset(&mcAddr, 0x00, sizeof(mcAddr));
             
         mcAddr.sin_family      = AF_INET;
-        mcAddr.sin_addr.s_addr = inet_addr(pChannel->mcAddr);
+        mcAddr.sin_addr.s_addr = htonl(INADDR_ANY);
         mcAddr.sin_port        = htons(pChannel->mcPort);
 
         result = bind(fd, (struct sockaddr*)&mcAddr, sizeof(mcAddr));
-        if (result == -1)
+        if (result == SOCKET_ERROR)
         {
-            THROW_ERROR(ERCD_EPS_SOCKET_ERROR, strerror(errno));
+            int lstErrno = NET_ERRNO;
+            THROW_ERROR(ERCD_EPS_SOCKET_ERROR, EpsGetSystemError(lstErrno));
         }   
 
-        struct ip_mreq mreq = { {inet_addr(pChannel->mcAddr)}, {inet_addr(pChannel->localAddr)} };
-        result = setsockopt(fd, IPPROTO_IP, IP_ADD_MEMBERSHIP, &mreq, sizeof(mreq));
-        if (result == -1)
+        struct ip_mreq mreq;
+        memset(&mreq, 0x00, sizeof(mreq));
+        mreq.imr_multiaddr.s_addr = inet_addr(pChannel->mcAddr);
+        mreq.imr_interface.s_addr = inet_addr(pChannel->localAddr);
+        result = setsockopt(fd, IPPROTO_IP, IP_ADD_MEMBERSHIP, (const char*)&mreq, sizeof(mreq));
+        if (result == SOCKET_ERROR)
         {
-            THROW_ERROR(ERCD_EPS_SOCKET_ERROR, strerror(errno));
+            int lstErrno = NET_ERRNO;
+            THROW_ERROR(ERCD_EPS_SOCKET_ERROR, EpsGetSystemError(lstErrno));
         }
 
+#if defined(__WINDOWS__)
+        unsigned long flags = 1;
+        result = ioctlsocket(fd, FIONBIO, &flags);
+#endif
+
+#if defined(__LINUX__) || defined(__HPUX__) 
         int flags = fcntl(fd, F_GETFL, 0);
         result = fcntl(fd, F_SETFL, flags | O_NONBLOCK);
-        if (result == -1)
+#endif
+        if (result == SOCKET_ERROR)
         {
-            THROW_ERROR(ERCD_EPS_OPERSYSTEM_ERROR, strerror(errno));
+            int lstErrno = SYS_ERRNO;
+            THROW_ERROR(ERCD_EPS_OPERSYSTEM_ERROR, EpsGetSystemError(lstErrno));
         }
 
         pChannel->socket = fd;
@@ -466,11 +514,18 @@ ResCodeT OpenUdpChannel(EpsUdpChannelT* pChannel)
     }
     CATCH
     {
-        if (fd != -1)
-        {
+    	if (fd != INVALID_SOCKET)
+    	{
+#if defined(__WINDOWS__)
+    		closesocket(fd);
+#endif
+
+#if defined(__LINUX__) || defined(__HPUX__) 
             close(fd);
-            fd = -1;
-        }
+#endif
+
+    		fd = INVALID_SOCKET;
+    	}
     }
     FINALLY
     {
@@ -490,12 +545,19 @@ ResCodeT CloseUdpChannel(EpsUdpChannelT* pChannel)
 {
     TRY
     {
-        if (pChannel->socket != -1)
+       if (pChannel->socket != INVALID_SOCKET)
         {
-            shutdown(pChannel->socket, SHUT_RDWR);
-            close(pChannel->socket);
+        	shutdown(pChannel->socket, SHUT_RDWR);
 
-            pChannel->socket = -1;
+#if defined(__WINDOWS__)
+        	closesocket(pChannel->socket);
+#endif
+
+#if defined(__LINUX__) || defined(__HPUX__) 
+            close(pChannel->socket);
+#endif
+   
+        	pChannel->socket = INVALID_SOCKET;
         }
 
         ClearEventQueue(pChannel);
@@ -562,9 +624,10 @@ static ResCodeT ReceiveData(EpsUdpChannelT* pChannel)
         timeout.tv_usec = (EPS_SOCKET_RECV_TIMEOUT % 1000) * 1000;
 
         int result = select(pChannel->socket+1, &fdset, 0, 0, &timeout);
-        if (result == -1)
+        if (result == SOCKET_ERROR)
         {
-            THROW_ERROR(ERCD_EPS_SOCKET_ERROR, strerror(errno));
+            int lstErrno = NET_ERRNO;
+            THROW_ERROR(ERCD_EPS_SOCKET_ERROR, EpsGetSystemError(lstErrno));
         }
         
         if (FD_ISSET(pChannel->socket, &fdset))
@@ -582,7 +645,8 @@ static ResCodeT ReceiveData(EpsUdpChannelT* pChannel)
             }
             else
             {
-                THROW_ERROR(ERCD_EPS_SOCKET_ERROR, strerror(errno));
+                int lstErrno = NET_ERRNO;
+                THROW_ERROR(ERCD_EPS_SOCKET_ERROR, EpsGetSystemError(lstErrno));
             }
         }
         else
@@ -669,7 +733,7 @@ static BOOL IsChannelStarted(EpsUdpChannelT* pChannel)
  */
 static BOOL IsChannelConnected(EpsUdpChannelT * pChannel)
 {
-    return (pChannel->socket != -1);
+    return (pChannel->socket != INVALID_SOCKET);
 }
 
 /*

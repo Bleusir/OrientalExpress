@@ -32,13 +32,6 @@ DD-MMM-YYYY INIT.    SIR    Modification Description
 extern "C" {
 #endif
 
-/**
- * 包含头文件
- */
-
-#include "common.h"
-#include "eps/epsTypes.h"
-
 
 /**
  * 类型定义
